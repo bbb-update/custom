@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X - Custom Extras
 // @namespace    x-custom-extras.personal
-// @version      1.2.4
+// @version      1.2.5
 // @description  Personal X extras, direct post buttons, and profile cleanup
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -26,6 +26,7 @@
         showViewerPostButton: 'O',
         showOwnReactionCountsOnly: 'O',
         showFullLikeCounts: 'O',
+        reactionCountExceptions: [],
         language: 'J',
         colorTheme: 5,
         hideFollowerCount: 'X',
@@ -50,6 +51,25 @@
         ) ? result.language : 'J';
         result.colorTheme = Math.min(6, Math.max(1,
             Number(result.colorTheme) || DEFAULT_SETTINGS.colorTheme));
+        result.reactionCountExceptions = Array.isArray(
+            source.reactionCountExceptions
+        ) ? source.reactionCountExceptions.map(function (item) {
+            const raw = typeof item === 'string'
+                ? item
+                : item && item.username;
+            const username = String(raw || '')
+                .trim().replace(/^@+/, '').toLowerCase();
+            return {
+                username,
+                enabled: typeof item === 'string'
+                    ? true
+                    : Boolean(item && item.enabled !== false)
+            };
+        }).filter(function (item, index, array) {
+            return item.username && array.findIndex(function (candidate) {
+                return candidate.username === item.username;
+            }) === index;
+        }) : [];
         return result;
     }
 
@@ -61,9 +81,9 @@
         }
     }
 
-    function saveSettings() {
+    function saveSettings(value = settings) {
         try {
-            GM_setValue(SETTINGS_KEY, Object.assign({}, settings));
+            GM_setValue(SETTINGS_KEY, Object.assign({}, value));
         } catch (e) {}
     }
 
@@ -1680,8 +1700,7 @@
             if (!element.isConnected) followerHidden.delete(element);
         }
 
-        // Keep already-hidden profile elements hidden while an overlay route
-        // (media viewer, Analytics, etc.) is open over the profile page.
+        // ============================================================
         if (!isProfilePage()) return;
 
         for (const anchor of document.querySelectorAll('a[href*="/verified_followers"]')) {
@@ -1890,9 +1909,9 @@
                 wrapper = null;
             }
             if (!wrapper) {
-                // Control Panel for Twitter can hide direct div[style]
-                // children in the mobile media viewer. Using a SPAN as the
-                // flex item preserves the layout without matching that rule.
+
+        // ============================================================
+
                 wrapper = document.createElement('span');
                 wrapper.className = 'x-viewer-post-button-wrapper';
                 wrapper.style.cssText = `
@@ -1911,9 +1930,8 @@
                 ));
             }
 
-            // Insert after the hidden reply cell so broad mobile viewer rules
-            // cannot mistake this button for the first reaction cell. It still
-            // appears at the far left because the reply cell has no layout.
+        // ============================================================
+
             const firstVisibleReaction = group.querySelector(
                 'button[data-testid="retweet"], ' +
                 'button[data-testid="unretweet"], ' +
@@ -1951,6 +1969,16 @@
         reactionCountHidden.delete(element);
     }
 
+    function canShowReactionCounts(username, loggedInUsername) {
+        const normalized = String(username || '').toLowerCase();
+        if (normalized === String(loggedInUsername || '').toLowerCase()) {
+            return true;
+        }
+        return settings.reactionCountExceptions.some(function (item) {
+            return item.enabled && item.username === normalized;
+        });
+    }
+
     function applyOwnReactionCountVisibility() {
         if (!isEnabled(settings.showOwnReactionCountsOnly)) {
             restoreHidden(reactionCountHidden);
@@ -1971,9 +1999,10 @@
             const postInfo = getPostInfo(article);
             if (!postInfo) continue;
 
-            const isOwnPost =
-                loggedInUsername.toLowerCase() ===
-                postInfo.username.toLowerCase();
+            const isOwnPost = canShowReactionCounts(
+                postInfo.username,
+                loggedInUsername
+            );
 
             for (const button of article.querySelectorAll(
                 'button[data-testid="reply"], ' +
@@ -1997,9 +2026,10 @@
 
         const viewer = getMediaViewerContext();
         if (viewer) {
-            const isOwnViewerPost =
-                loggedInUsername.toLowerCase() ===
-                viewer.username.toLowerCase();
+            const isOwnViewerPost = canShowReactionCounts(
+                viewer.username,
+                loggedInUsername
+            );
 
             for (const group of viewer.groups) {
                 for (const button of group.querySelectorAll(
@@ -2035,6 +2065,10 @@
                 showViewerPostButton: 'メディアビューアー閉じる ボタン',
                 viewerPostAction: 'メディアビューアーを閉じる',
                 showOwnReactionCountsOnly: '自分のポストのみ反応数を表示',
+                reactionCountExceptions: '└ 非表示対象外アカウント',
+                register: '登録',
+                exceptionTitle: '対象外アカウント',
+                accountId: 'アカウントID',
                 showFullLikeCounts: '分析：いいね数を全桁表示',
                 hideFollowerCount: 'フォロワー数を非表示',
                 hideFollowerLink: '└ 一覧リンクも非表示',
@@ -2051,7 +2085,11 @@
                 showQuotes: 'Quotes list button',
                 showViewerPostButton: 'Close media viewer button',
                 viewerPostAction: 'Close media viewer',
-                showOwnReactionCountsOnly: 'Show reaction counts on own posts only',
+                showOwnReactionCountsOnly: 'Show own-post reaction counts',
+                reactionCountExceptions: '└ Account exceptions',
+                register: 'Add',
+                exceptionTitle: 'Accounts with counts',
+                accountId: 'Account ID',
                 showFullLikeCounts: 'Analytics: Show full like count',
                 hideFollowerCount: 'Hide follower count',
                 hideFollowerLink: '└ Hide follower list link too',
@@ -2069,6 +2107,10 @@
                 showViewerPostButton: '미디어 뷰어 닫기 버튼',
                 viewerPostAction: '미디어 뷰어 닫기',
                 showOwnReactionCountsOnly: '본인 글에만 반응 수치 표시',
+                reactionCountExceptions: '└ 비표시 예외 계정',
+                register: '등록',
+                exceptionTitle: '예외 계정 등록',
+                accountId: '계정 ID',
                 showFullLikeCounts: '통계 : 좋아요 전체 수치 표시',
                 hideFollowerCount: '팔로워 숫자 비표시',
                 hideFollowerLink: '└ 목록 링크도 비표시',
@@ -2086,6 +2128,10 @@
                 showViewerPostButton: '关闭媒体查看器按钮',
                 viewerPostAction: '关闭媒体查看器',
                 showOwnReactionCountsOnly: '仅在自己的帖子显示互动数',
+                reactionCountExceptions: '└ 不隐藏的例外账号',
+                register: '添加',
+                exceptionTitle: '例外账号',
+                accountId: '账号 ID',
                 showFullLikeCounts: '数据分析：显示完整点赞数',
                 hideFollowerCount: '隐藏粉丝数',
                 hideFollowerLink: '└ 同时隐藏列表链接',
@@ -2103,6 +2149,10 @@
                 showViewerPostButton: '關閉媒體檢視器按鈕',
                 viewerPostAction: '關閉媒體檢視器',
                 showOwnReactionCountsOnly: '僅在自己的貼文顯示互動數',
+                reactionCountExceptions: '└ 不隱藏的例外帳號',
+                register: '新增',
+                exceptionTitle: '例外帳號',
+                accountId: '帳號 ID',
                 showFullLikeCounts: '數據分析：顯示完整按讚數',
                 hideFollowerCount: '隱藏追蹤者人數',
                 hideFollowerLink: '└ 同時隱藏列表連結',
@@ -2116,9 +2166,23 @@
         return texts[settings.language] || texts.J;
     }
 
-    function closeSettingsPopup() {
+    let settingsPreview = null;
+
+    function closeSettingsPopup(commit = false) {
         const popup = document.querySelector('.x-extras-settings-popup');
         if (popup) popup.remove();
+        const exceptionPopup = document.querySelector(
+            '.x-extras-exception-popup'
+        );
+        if (exceptionPopup) exceptionPopup.remove();
+        if (!commit && settingsPreview) {
+            settings.showOwnReactionCountsOnly =
+                settingsPreview.showOwnReactionCountsOnly;
+            settings.showFullLikeCounts =
+                settingsPreview.showFullLikeCounts;
+            scanArticles();
+        }
+        settingsPreview = null;
     }
 
     function positionSettingsPopup(popup, button) {
@@ -2194,14 +2258,210 @@
         }
     }
 
+    function openExceptionAccountsPopup() {
+        const old = document.querySelector('.x-extras-exception-popup');
+        if (old) old.remove();
+
+        const base = getBaseThemeColors();
+        const text = getSettingsText();
+        const draft = settings.reactionCountExceptions.map(function (item) {
+            return Object.assign({}, item);
+        });
+        const popup = document.createElement('div');
+        popup.className = 'x-extras-exception-popup';
+        popup.addEventListener('click', function (event) {
+            event.stopPropagation();
+        });
+        popup.style.cssText = `position:fixed;z-index:2147483647;left:50%;top:50%;` +
+            `transform:translate(-50%,-50%);width:240px;max-width:calc(100vw - 24px);` +
+            `max-height:calc(100dvh - 24px);overflow-y:auto;padding:14px;` +
+            `border:1px solid ${base.border};border-radius:12px;` +
+            `background:${base.background};color:${isLightTheme() ? '#0f1419' : '#e7e9ea'};` +
+            `box-shadow:0 8px 28px rgba(0,0,0,.28);font-family:-apple-system,` +
+            `BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;` +
+            `font-size:13px;box-sizing:border-box;`;
+
+        function addPopupButtonEffects(button) {
+            button.style.transition = 'filter 0.12s ease';
+            button.addEventListener('mouseenter', function () {
+                button.style.filter = 'brightness(1.12)';
+            });
+            button.addEventListener('mouseleave', function () {
+                button.style.filter = 'none';
+            });
+            button.addEventListener('mousedown', function () {
+                button.style.filter =
+                    `brightness(${pressedBrightness[settings.colorTheme] || 1.25})`;
+            });
+            button.addEventListener('mouseup', function () {
+                button.style.filter = 'brightness(1.12)';
+            });
+        }
+
+        const title = document.createElement('div');
+        title.textContent = '✦ ' + text.exceptionTitle;
+        title.style.cssText =
+            'font-size:15px;font-weight:700;margin-bottom:12px;text-align:left';
+
+        const inputRow = document.createElement('div');
+        inputRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:10px';
+        const prefix = document.createElement('span');
+        prefix.textContent = '@';
+        prefix.style.fontWeight = '600';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = text.accountId;
+        input.autocomplete = 'off';
+        input.style.cssText = `min-width:0;flex:1;height:28px;padding:0 8px;` +
+            `border:1px solid ${base.border};border-radius:6px;box-sizing:border-box;` +
+            `background:${base.background};color:${isLightTheme() ? '#0f1419' : '#e7e9ea'};` +
+            `text-align:left;`;
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.style.cssText = `width:28px;height:28px;padding:0;border:1px solid ${base.border};` +
+            `border-radius:6px;background:${getAccentColor()};color:#fff;cursor:pointer;` +
+            `font-size:17px;font-weight:700;line-height:1;display:flex;` +
+            `align-items:center;justify-content:center;`;
+        add.innerHTML = '<svg viewBox="0 -960 960 960" aria-hidden="true" ' +
+            'style="width:14px;height:14px;display:block;fill:currentColor;pointer-events:none">' +
+            '<path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg>';
+        addPopupButtonEffects(add);
+        inputRow.append(prefix, input, add);
+
+        const list = document.createElement('div');
+        list.style.cssText = 'display:flex;flex-direction:column;gap:5px';
+
+        function normalizeUsername(value) {
+            return String(value || '').trim().replace(/^@+/, '').toLowerCase();
+        }
+
+        function renderList() {
+            list.replaceChildren();
+            draft.forEach(function (item, index) {
+                const row = document.createElement('div');
+                row.style.cssText = `height:28px;display:flex;align-items:center;gap:7px;` +
+                    `padding:0 6px;border:1px solid ${base.border};border-radius:6px;` +
+                    `box-sizing:border-box;`;
+                const name = document.createElement('span');
+                name.textContent = '@' + item.username;
+                name.style.cssText =
+                    'min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;' +
+                    'white-space:nowrap;text-align:left';
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.setAttribute('aria-label', 'Remove');
+                remove.style.cssText = `width:22px;height:20px;padding:0;` +
+                    `border:1px solid ${getAccentColor()};border-radius:5px;` +
+                    `background:${getAccentColor()};color:#fff;cursor:pointer;` +
+                    `font-size:10px;display:flex;align-items:center;justify-content:center;`;
+                remove.innerHTML = '<svg viewBox="0 -960 960 960" aria-hidden="true" ' +
+                    'style="width:13px;height:13px;display:block;fill:currentColor;pointer-events:none">' +
+                    '<path d="M200-440v-80h560v80H200Z"/></svg>';
+                addPopupButtonEffects(remove);
+                remove.addEventListener('click', function (event) {
+                    event.stopPropagation();
+                    draft.splice(index, 1);
+                    renderList();
+                });
+                const enabled = document.createElement('input');
+                enabled.type = 'checkbox';
+                enabled.checked = item.enabled;
+                enabled.style.cssText = `width:15px;height:15px;margin:0;` +
+                    `accent-color:${getAccentColor()};flex:0 0 auto;`;
+                enabled.addEventListener('change', function () {
+                    item.enabled = enabled.checked;
+                });
+                row.append(name, remove, enabled);
+                list.appendChild(row);
+            });
+        }
+
+        function addInputValue() {
+            const username = normalizeUsername(input.value);
+            if (!username || !/^[a-z0-9_]{1,15}$/i.test(username)) return;
+            const existing = draft.find(function (item) {
+                return item.username === username;
+            });
+            if (existing) {
+                existing.enabled = true;
+            } else {
+                draft.push({username, enabled: true});
+            }
+            input.value = '';
+            renderList();
+        }
+
+        add.addEventListener('click', addInputValue);
+        input.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            addInputValue();
+        });
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px';
+        const save = document.createElement('button');
+        save.type = 'button';
+        save.textContent = text.save;
+        save.style.cssText = `width:80px;height:30px;padding:0 8px;border:1px solid ${getAccentColor()};` +
+            `border-radius:7px;background:${getAccentColor()};` +
+            `color:${isLightTheme() ? '#0f1419' : '#fff'};cursor:pointer;` +
+            `font-size:12px;font-weight:600;display:flex;align-items:center;` +
+            `justify-content:center;text-align:center;`;
+        addPopupButtonEffects(save);
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.setAttribute('aria-label', text.cancel);
+        cancel.style.cssText = `width:30px;height:30px;padding:0;border:1px solid ${base.border};` +
+            `border-radius:7px;background:${base.background};` +
+            `color:${isLightTheme() ? '#0f1419' : '#e7e9ea'};cursor:pointer;` +
+            `display:flex;align-items:center;justify-content:center;`;
+        cancel.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" ' +
+            'style="width:14px;height:14px;display:block;margin:auto;fill:currentColor;pointer-events:none">' +
+            '<path d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.7 4.29 4.29 10.59 10.59 16.89 4.29z"/></svg>';
+        cancel.addEventListener('click', function (event) {
+            event.stopPropagation();
+            popup.remove();
+        });
+        save.addEventListener('click', function (event) {
+            event.stopPropagation();
+            addInputValue();
+            settings.reactionCountExceptions = draft.map(function (item) {
+                return Object.assign({}, item);
+            });
+            settings = normalizeSettings(settings);
+            const persisted = Object.assign({}, settings);
+            if (settingsPreview) {
+                persisted.showOwnReactionCountsOnly =
+                    settingsPreview.showOwnReactionCountsOnly;
+                persisted.showFullLikeCounts =
+                    settingsPreview.showFullLikeCounts;
+            }
+            saveSettings(persisted);
+            popup.remove();
+            applyOwnReactionCountVisibility();
+        });
+        actions.append(save, cancel);
+        popup.append(title, inputRow, list, actions);
+        document.body.appendChild(popup);
+        renderList();
+        input.focus();
+    }
+
     function openSettingsPopup(button = null) {
         const existing = document.querySelector('.x-extras-settings-popup');
         if (existing) {
-            existing.remove();
+            closeSettingsPopup();
             return;
         }
 
-        // Keep only the Custom Extras popup when Default All is open.
+        settingsPreview = {
+            showOwnReactionCountsOnly: settings.showOwnReactionCountsOnly,
+            showFullLikeCounts: settings.showFullLikeCounts
+        };
+
+        // ============================================================
+
         const defaultAllPopup = document.querySelector(
             '.x-default-settings-popup'
         );
@@ -2275,11 +2535,64 @@
         popup.appendChild(featureSeparator);
 
         checkboxRow(text.showViewerPostButton, 'showViewerPostButton');
-        checkboxRow(text.showFullLikeCounts, 'showFullLikeCounts');
-        checkboxRow(
+        const showFullLikeCounts = checkboxRow(
+            text.showFullLikeCounts,
+            'showFullLikeCounts'
+        );
+        const showOwnReactionCountsOnly = checkboxRow(
             text.showOwnReactionCountsOnly,
             'showOwnReactionCountsOnly'
         );
+
+        function applySettingsPreview() {
+            settings.showFullLikeCounts =
+                showFullLikeCounts.checked ? 'O' : 'X';
+            settings.showOwnReactionCountsOnly =
+                showOwnReactionCountsOnly.checked ? 'O' : 'X';
+            scanArticles();
+        }
+
+        showFullLikeCounts.addEventListener('change', applySettingsPreview);
+        showOwnReactionCountsOnly.addEventListener(
+            'change',
+            applySettingsPreview
+        );
+
+        const exceptionRow = document.createElement('div');
+        exceptionRow.style.cssText =
+            'min-height:23px;margin-top:-2px;display:flex;align-items:center;' +
+            'justify-content:space-between;gap:10px;padding-left:14px';
+        showOwnReactionCountsOnly.parentElement.style.minHeight = '30px';
+        const exceptionLabel = document.createElement('span');
+        exceptionLabel.textContent = text.reactionCountExceptions;
+        exceptionLabel.style.cssText = 'font-size:12px;font-weight:400';
+        const register = document.createElement('button');
+        register.type = 'button';
+        register.textContent = text.register;
+        register.style.cssText = `height:18px;min-width:46px;padding:0 9px;` +
+            `border:1px solid ${getAccentColor()};border-radius:5px;` +
+            `background:${getAccentColor()};` +
+            `color:${isLightTheme() ? '#0f1419' : '#fff'};cursor:pointer;` +
+            `font-size:10px;font-weight:600;line-height:1;box-sizing:border-box;` +
+            `display:flex;align-items:center;justify-content:center;text-align:center;` +
+            `transition:filter 0.12s ease;`;
+        register.addEventListener('mouseenter', function () {
+            register.style.filter = 'brightness(1.12)';
+        });
+        register.addEventListener('mouseleave', function () {
+            register.style.filter = 'none';
+        });
+        register.addEventListener('mousedown', function () {
+            register.style.filter =
+                `brightness(${pressedBrightness[settings.colorTheme] || 1.25})`;
+        });
+        register.addEventListener('mouseup', function () {
+            register.style.filter = 'brightness(1.12)';
+        });
+        register.addEventListener('click', openExceptionAccountsPopup);
+        exceptionRow.append(exceptionLabel, register);
+        popup.appendChild(exceptionRow);
+
         const followerCount = checkboxRow(text.hideFollowerCount, 'hideFollowerCount');
         const followerLink = checkboxRow(text.hideFollowerLink, 'hideFollowerLink', true);
 
@@ -2410,7 +2723,9 @@
             save.style.filter = 'brightness(1.12)';
         });
 
-        cancel.addEventListener('click', closeSettingsPopup);
+        cancel.addEventListener('click', function () {
+            closeSettingsPopup();
+        });
         save.addEventListener('click', function () {
             for (const input of popup.querySelectorAll('input[data-setting]')) {
                 settings[input.dataset.setting] = input.checked ? 'O' : 'X';
@@ -2419,7 +2734,7 @@
             settings.colorTheme = Number(choices.dataset.selected) || 5;
             settings = normalizeSettings(settings);
             saveSettings();
-            closeSettingsPopup();
+            closeSettingsPopup(true);
             restoreHidden(extraHidden);
             restoreHidden(followerHidden);
             removeDirectButtonWrappers();
@@ -2495,7 +2810,6 @@
             try {
                 addButtonsToArticle(article);
             } catch (e) {
-                // Continue processing other posts if one mobile DOM differs.
             }
         }
         applyMiscVisibility();
@@ -2531,8 +2845,15 @@
             '.x-default-settings-popup'
         );
 
-        // Close Custom Extras if Default All opens afterward.
-        if (customPopup && defaultAllPopup) customPopup.remove();
+        // ============================================================
+        if (customPopup && defaultAllPopup) closeSettingsPopup();
+        if (!customPopup && settingsPreview) {
+            settings.showOwnReactionCountsOnly =
+                settingsPreview.showOwnReactionCountsOnly;
+            settings.showFullLikeCounts =
+                settingsPreview.showFullLikeCounts;
+            settingsPreview = null;
+        }
 
         scheduleScan();
     });
@@ -2549,7 +2870,11 @@
 
     document.addEventListener('click', function (event) {
         const popup = document.querySelector('.x-extras-settings-popup');
+        const exceptionPopup = document.querySelector(
+            '.x-extras-exception-popup'
+        );
         if (!popup || popup.contains(event.target) ||
+            (exceptionPopup && exceptionPopup.contains(event.target)) ||
             event.target.closest('.x-custom-extras-settings-button')) return;
         closeSettingsPopup();
     });
