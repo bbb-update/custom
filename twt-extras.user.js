@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X - Custom Extras
 // @namespace    x-custom-extras.personal
-// @version      1.2.5
+// @version      1.2.6
 // @description  Personal X extras, direct post buttons, and profile cleanup
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -1258,7 +1258,7 @@
             likeCount !== 0;
         const quoteCount = getQuoteCount(article, postInfo.statusId);
         const showQuotes =
-            isEnabled(settings.showQuotes) && quoteCount !== 0;
+            isEnabled(settings.showQuotes) && quoteCount > 0;
         const detailMatch = location.pathname.match(
             /^\/[^/]+\/status\/(\d+)\/?$/
         );
@@ -1502,7 +1502,7 @@
             likeCount !== 0;
         const quoteCount = getQuoteCount(article, postInfo.statusId);
         const showQuotesForThisPost =
-            isEnabled(settings.showQuotes) && quoteCount !== 0;
+            isEnabled(settings.showQuotes) && quoteCount > 0;
 
         const buttonSignature = [
             postInfo.statusId,
