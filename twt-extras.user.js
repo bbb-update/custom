@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X - Custom Extras
 // @namespace    x-custom-extras.personal
-// @version      1.2.6
+// @version      1.2.7
 // @description  Personal X extras, direct post buttons, and profile cleanup
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -1637,6 +1637,17 @@
         }
 
         for (const link of document.querySelectorAll('a[href="/i/premium_sign_up"]')) {
+            const premiumAside = link.closest(
+                'aside[role="complementary"]'
+            );
+            if (premiumAside) {
+                rememberAndHide(
+                    premiumAside.parentElement || premiumAside,
+                    extraHidden
+                );
+                continue;
+            }
+
             let target = link;
             for (let i = 0; i < 3 && target.parentElement; i++) {
                 const parent = target.parentElement;
