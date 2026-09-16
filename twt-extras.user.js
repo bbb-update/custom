@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X - Custom Extras
 // @namespace    x-custom-extras.personal
-// @version      1.2.7
+// @version      1.2.10
 // @description  Personal X extras, direct post buttons, and profile cleanup
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -1648,6 +1648,18 @@
                 continue;
             }
 
+            const premiumPrompt = link.closest(
+                'div.r-1xpp3t0'
+            );
+
+            if (premiumPrompt) {
+                rememberAndHide(
+                    premiumPrompt,
+                    extraHidden
+                );
+                continue;
+            }
+
             let target = link;
             for (let i = 0; i < 3 && target.parentElement; i++) {
                 const parent = target.parentElement;
@@ -1658,6 +1670,27 @@
                 } else break;
             }
             rememberAndHide(target, extraHidden);
+        }
+
+        for (const link of document.querySelectorAll(
+            'a[href="/i/account_analytics"]'
+        )) {
+            const analyticsPrompt = link.closest(
+                'div.r-1q9bdsx'
+            );
+
+            if (
+                analyticsPrompt &&
+                analyticsPrompt.querySelector(
+                    'button[role="button"]'
+                )
+            ) {
+                rememberAndHide(
+                    analyticsPrompt.parentElement ||
+                        analyticsPrompt,
+                    extraHidden
+                );
+            }
         }
 
         if (!isProfilePage()) return;
@@ -2628,7 +2661,7 @@
         languageLabel.style.fontWeight = '500';
         const languageSelect = document.createElement('select');
         languageSelect.style.cssText = `width:112px;height:29px;padding:0 7px;` +
-            `border:1px solid ${base.border};border-radius:6px;` +
+            `border:1px solid ${isLightTheme() ? '#cfd9de' : '#536471'};border-radius:6px;` +
             `background:${base.background};color:${isLightTheme() ? '#0f1419' : '#e7e9ea'};cursor:pointer`;
 
         for (const [value, label] of [
