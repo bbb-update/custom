@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X - Custom Extras
 // @namespace    x-custom-extras.personal
-// @version      1.2.10
+// @version      1.3.0
 // @description  Personal X extras, direct post buttons, and profile cleanup
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -23,7 +23,9 @@
         showAnalytics: 'O',
         showLikes: 'O',
         showQuotes: 'O',
+        showReactionCounts: 'O',
         showViewerPostButton: 'O',
+        enableMediaThumbnailShortcut: 'O',
         showOwnReactionCountsOnly: 'O',
         showFullLikeCounts: 'O',
         reactionCountExceptions: [],
@@ -39,7 +41,9 @@
         for (const key of [
             'hideExtras', 'hideVerifiedBadge',
             'showAnalytics', 'showLikes', 'showQuotes',
+            'showReactionCounts',
             'showViewerPostButton',
+            'enableMediaThumbnailShortcut',
             'showOwnReactionCountsOnly',
             'showFullLikeCounts',
             'hideFollowerCount', 'hideFollowerLink'
@@ -88,6 +92,7 @@
     }
 
     let settings = loadSettings();
+    let mediaThumbnailDetailKeyDown = false;
 
     function isMobileMode() {
         return /Android|Mobi|iPhone|iPad|iPod/i.test(
@@ -142,12 +147,31 @@
     let scrollRestoreActive = false;
     const quoteCountCache = new WeakMap();
     const likeCountCache = new WeakMap();
+    const reactionCountsByStatusId = new Map();
+    const reactionCountPageChecks = new Map();
     const extraHidden = new Map();
     const followerHidden = new Map();
     const originalLikeMetricTexts = new Map();
     const originalPostLikeTexts = new Map();
     const viewerReplyHidden = new Map();
     const reactionCountHidden = new Map();
+
+    const reactionCountStyle = document.createElement('style');
+    reactionCountStyle.textContent =
+        '.x-quote-count-host{' +
+        'display:flex!important;' +
+        'flex-direction:row!important;' +
+        'align-items:center!important;' +
+        'flex-wrap:nowrap!important;' +
+        'gap:0!important;' +
+        'column-gap:0!important;' +
+        'overflow:visible!important;' +
+        'width:max-content!important;}' +
+        '.x-quote-count-host.x-quote-count-stacked{' +
+        'flex-direction:column!important;' +
+        'align-items:flex-start!important;}';
+    (document.head || document.documentElement)
+        .appendChild(reactionCountStyle);
 
     function rememberAndHide(element, store) {
         if (!element) return;
@@ -250,6 +274,66 @@
             location.href = url.href;
         }
     }
+
+    document.addEventListener('keydown', function (event) {
+        if (event.code !== 'KeyD') return;
+        const target = event.target;
+        if (target && typeof target.closest === 'function' &&
+            target.closest(
+                'textarea,select,[contenteditable="true"],' +
+                '[role="textbox"],input'
+            )) {
+            return;
+        }
+        mediaThumbnailDetailKeyDown = true;
+    }, true);
+
+    document.addEventListener('keyup', function (event) {
+        if (event.code === 'KeyD') mediaThumbnailDetailKeyDown = false;
+    }, true);
+
+    window.addEventListener('blur', function () {
+        mediaThumbnailDetailKeyDown = false;
+    });
+
+    document.addEventListener('click', function (event) {
+        if (!isEnabled(settings.enableMediaThumbnailShortcut) ||
+            !mediaThumbnailDetailKeyDown || event.button !== 0 ||
+            !/^\/[^/]+\/media\/?$/.test(location.pathname)) {
+            return;
+        }
+
+        const target = event.target;
+        if (!target || typeof target.closest !== 'function') return;
+        const link = target.closest('a[href*="/status/"]');
+        if (!link) return;
+
+        let match;
+        try {
+            match = new URL(link.href, location.href).pathname.match(
+                /^(\/[^/]+\/status\/\d+)\/(?:photo|video)\/\d+\/?$/
+            );
+        } catch (e) {
+            return;
+        }
+        if (!match) return;
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (typeof link.blur === 'function') link.blur();
+        const clearFocus = function () {
+            const active = document.activeElement;
+            if (active && active !== document.body &&
+                typeof active.blur === 'function') {
+                active.blur();
+            }
+        };
+        clearFocus();
+        navigateWithXRouter(match[1]);
+        requestAnimationFrame(clearFocus);
+        setTimeout(clearFocus, 80);
+        setTimeout(clearFocus, 250);
+    }, true);
 
     function getCurrentRoute() {
         return location.pathname + location.search + location.hash;
@@ -692,6 +776,185 @@
         };
     }
 
+    function rememberReactionCounts(statusId, value) {
+        let source = null;
+
+        try {
+            if (String(value.rest_id || '') === statusId && value.legacy) {
+                source = value.legacy;
+            } else if (String(value.id_str || '') === statusId) {
+                source = value;
+            }
+        } catch (e) {
+            return null;
+        }
+
+        if (!source) return null;
+
+        const previous = reactionCountsByStatusId.get(statusId) || {};
+        const next = {
+            quotes: typeof source.quote_count === 'number'
+                ? source.quote_count
+                : previous.quotes,
+            reposts: typeof source.retweet_count === 'number'
+                ? source.retweet_count
+                : previous.reposts,
+            likes: typeof source.favorite_count === 'number'
+                ? source.favorite_count
+                : previous.likes,
+            checkedAt: Date.now()
+        };
+
+        if (
+            typeof next.quotes !== 'number' &&
+            typeof next.reposts !== 'number' &&
+            typeof next.likes !== 'number'
+        ) {
+            return null;
+        }
+
+        reactionCountsByStatusId.set(statusId, next);
+        return next;
+    }
+
+    function findReactionCountsInReactValue(rootValue, statusId) {
+        const stack = [{ value: rootValue, depth: 0 }];
+        const visited = new WeakSet();
+        let checked = 0;
+
+        while (stack.length && checked < 8000) {
+            const item = stack.pop();
+            const value = item.value;
+
+            if (!value || typeof value !== 'object' ||
+                item.depth > 16 || value.nodeType || visited.has(value)) {
+                continue;
+            }
+
+            visited.add(value);
+            checked++;
+
+            const counts = rememberReactionCounts(statusId, value);
+            if (counts) return counts;
+
+            let keys;
+            try {
+                keys = Object.keys(value);
+            } catch (e) {
+                continue;
+            }
+
+            for (const key of keys) {
+                let child;
+                try {
+                    child = value[key];
+                } catch (e) {
+                    continue;
+                }
+                if (child && typeof child === 'object') {
+                    stack.push({ value: child, depth: item.depth + 1 });
+                }
+            }
+        }
+
+        return null;
+    }
+
+    function findReactionCountsOnPage(statusId) {
+        const cached = reactionCountsByStatusId.get(statusId);
+        const now = Date.now();
+
+        if (cached && now - cached.checkedAt < 30000) {
+            return cached;
+        }
+
+        if (now - (reactionCountPageChecks.get(statusId) || 0) < 5000) {
+            return cached || null;
+        }
+
+        reactionCountPageChecks.set(statusId, now);
+
+        const elements = [];
+        const primary = document.querySelector(
+            '[data-testid="primaryColumn"]'
+        );
+        const root = document.querySelector('#react-root');
+
+        if (primary) elements.push(primary);
+        if (root && root !== primary) elements.push(root);
+
+        for (const element of document.querySelectorAll(
+            '[data-testid="primaryColumn"] *, #react-root > *'
+        )) {
+            elements.push(element);
+            if (elements.length >= 120) break;
+        }
+
+        for (const element of elements) {
+            let keys;
+            try {
+                keys = Object.keys(element);
+            } catch (e) {
+                continue;
+            }
+
+            for (const key of keys) {
+                if (key.indexOf('__reactProps') !== 0 &&
+                    key.indexOf('__reactFiber') !== 0) {
+                    continue;
+                }
+
+                const counts = findReactionCountsInReactValue(
+                    element[key],
+                    statusId
+                );
+
+                if (counts) return counts;
+            }
+        }
+
+        return cached || null;
+    }
+
+    function findReactionCountsNearElement(element, statusId) {
+        const elements = [];
+        let current = element;
+
+        for (let i = 0; current && i < 10; i++) {
+            elements.push(current);
+            current = current.parentElement;
+        }
+
+        for (const child of element?.querySelectorAll('*') || []) {
+            elements.push(child);
+            if (elements.length >= 80) break;
+        }
+
+        for (const target of elements) {
+            let keys;
+            try {
+                keys = Object.keys(target);
+            } catch (e) {
+                continue;
+            }
+
+            for (const key of keys) {
+                if (key.indexOf('__reactProps') !== 0 &&
+                    key.indexOf('__reactFiber') !== 0) {
+                    continue;
+                }
+
+                const counts = findReactionCountsInReactValue(
+                    target[key],
+                    statusId
+                );
+                if (counts) return counts;
+            }
+        }
+
+        return null;
+    }
+
     function findQuoteCountInReactValue(rootValue, statusId) {
         const stack = [{ value: rootValue, depth: 0 }];
         const visited = new WeakSet();
@@ -719,11 +982,13 @@
                 if (String(value.rest_id || '') === statusId &&
                     value.legacy &&
                     typeof value.legacy.quote_count === 'number') {
+                    rememberReactionCounts(statusId, value);
                     return value.legacy.quote_count;
                 }
 
                 if (String(value.id_str || '') === statusId &&
                     typeof value.quote_count === 'number') {
+                    rememberReactionCounts(statusId, value);
                     return value.quote_count;
                 }
             } catch (e) {}
@@ -827,11 +1092,13 @@
                 if (String(value.rest_id || '') === statusId &&
                     value.legacy &&
                     typeof value.legacy.favorite_count === 'number') {
+                    rememberReactionCounts(statusId, value);
                     return value.legacy.favorite_count;
                 }
 
                 if (String(value.id_str || '') === statusId &&
                     typeof value.favorite_count === 'number') {
+                    rememberReactionCounts(statusId, value);
                     return value.favorite_count;
                 }
             } catch (e) {}
@@ -1450,7 +1717,8 @@
         if (
             !isEnabled(settings.showAnalytics) &&
             !isEnabled(settings.showQuotes) &&
-            !isEnabled(settings.showLikes)
+            !isEnabled(settings.showLikes) &&
+            !isEnabled(settings.showReactionCounts)
         ) {
             const existing = findArticleButtonWrapper(article);
             if (existing) existing.remove();
@@ -1461,6 +1729,11 @@
 
         if (!postInfo) {
             return;
+        }
+
+        if (isEnabled(settings.showReactionCounts)) {
+            getQuoteCount(article, postInfo.statusId);
+            getLikeCount(article, postInfo.statusId);
         }
 
         const mobileMode = isMobileMode();
@@ -1909,16 +2182,29 @@
         const groups = Array.from(document.querySelectorAll('[role="group"]'))
             .filter(function (group) {
                 if (group.closest('article')) return false;
-                return Boolean(group.querySelector(
+                const reactionButton = group.querySelector(
                     'button[data-testid="retweet"], ' +
                     'button[data-testid="unretweet"], ' +
                     'button[data-testid="like"], ' +
                     'button[data-testid="unlike"]'
-                ));
+                );
+                const reactionCell = reactionButton?.parentElement;
+                const rect = group.getBoundingClientRect();
+                const style = getComputedStyle(group);
+
+                return Boolean(
+                    reactionCell &&
+                    reactionCell.parentElement === group &&
+                    rect.width > 0 &&
+                    rect.height > 0 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden'
+                );
             });
 
         return {
             username: mediaMatch[1],
+            statusId: mediaMatch[2],
             postPath: '/' + mediaMatch[1] + '/status/' + mediaMatch[2],
             groups
         };
@@ -1934,6 +2220,17 @@
 
         const actionText = getSettingsText().viewerPostAction;
         let foundViewerToolbar = false;
+        const viewerGroups = new Set(viewer.groups);
+
+        for (const wrapper of document.querySelectorAll(
+            '.x-viewer-post-button-wrapper'
+        )) {
+            if (!viewerGroups.has(wrapper.parentElement)) {
+                wrapper.remove();
+            }
+        }
+
+        restoreHidden(viewerReplyHidden);
 
         for (const group of viewer.groups) {
             foundViewerToolbar = true;
@@ -1988,8 +2285,6 @@
                 if (wrapper.nextElementSibling !== firstVisibleCell) {
                     group.insertBefore(wrapper, firstVisibleCell);
                 }
-            } else if (group.firstElementChild !== wrapper) {
-                group.insertBefore(wrapper, group.firstElementChild);
             }
         }
 
@@ -2098,18 +2393,271 @@
         }
     }
 
+    function removeReactionCountDisplays() {
+        for (const element of document.querySelectorAll(
+            '.x-reaction-tab-count, .x-quote-count-after-retweet'
+        )) {
+            element.remove();
+        }
+        for (const element of document.querySelectorAll(
+            '.x-quote-count-host'
+        )) {
+            element.classList.remove('x-quote-count-host');
+            element.classList.remove('x-quote-count-stacked');
+        }
+    }
+
+    function formatReactionCount(count) {
+        return Number(count).toLocaleString();
+    }
+
+    function updateQuoteCountForButton(
+        button,
+        statusId,
+        quoteCount
+    ) {
+        if (!button) return false;
+
+        const transition = button.querySelector(
+            '[data-testid="app-text-transition-container"]'
+        );
+        const existing = button.querySelector(
+            '.x-quote-count-after-retweet'
+        );
+        const countHost = transition?.parentElement ||
+            existing?.parentElement;
+
+        if (
+            !transition ||
+            typeof quoteCount !== 'number' ||
+            quoteCount <= 0
+        ) {
+            existing?.remove();
+            countHost?.classList.remove('x-quote-count-host');
+            countHost?.classList.remove('x-quote-count-stacked');
+            return false;
+        }
+
+        countHost.classList.add('x-quote-count-host');
+        const stacked = Boolean(
+            button.closest('#cpftFocusedTweetActionBar') &&
+            /\/status\/\d+\/(?:photo|video)\/\d+\/?$/.test(
+                location.pathname
+            )
+        );
+        countHost.classList.toggle('x-quote-count-stacked', stacked);
+
+        let quoteLabel = existing;
+
+        if (!quoteLabel) {
+            quoteLabel = document.createElement('span');
+            quoteLabel.className = 'x-quote-count-after-retweet';
+            quoteLabel.style.cssText =
+                'margin-left:4px;display:inline-block;' +
+                'flex:0 0 auto;color:inherit;white-space:nowrap';
+            transition.insertAdjacentElement(
+                'afterend',
+                quoteLabel
+            );
+        }
+
+        quoteLabel.dataset.statusId = statusId;
+
+        const valueSpans = transition.querySelectorAll('span');
+        const valueSpan = valueSpans[valueSpans.length - 1] ||
+            transition;
+        const valueStyle = getComputedStyle(valueSpan);
+        quoteLabel.style.fontFamily = valueStyle.fontFamily;
+        quoteLabel.style.fontSize = stacked ? '11px' : valueStyle.fontSize;
+        quoteLabel.style.fontWeight = valueStyle.fontWeight;
+        quoteLabel.style.lineHeight = valueStyle.lineHeight;
+        quoteLabel.style.marginLeft = stacked ? '0' : '4px';
+
+        const nextText =
+            '(\u200aQ\u2009' +
+            formatReactionCount(quoteCount) +
+            '\u200a)';
+        if (quoteLabel.textContent !== nextText) {
+            quoteLabel.textContent = nextText;
+        }
+
+        return true;
+    }
+
+    function refreshReactionCountDisplays() {
+        if (!isEnabled(settings.showReactionCounts)) {
+            removeReactionCountDisplays();
+            return;
+        }
+
+        const match = location.pathname.match(
+            /^\/([^/]+)\/status\/(\d+)(?:\/(?:quotes|retweets|likes)|\/(?:photo|video)\/\d+)?\/?$/
+        );
+
+        if (!match) {
+            removeReactionCountDisplays();
+            return;
+        }
+
+        const loggedInUsername = detectMobileLoginUsername();
+        if (
+            isEnabled(settings.showOwnReactionCountsOnly) &&
+            loggedInUsername &&
+            !canShowReactionCounts(match[1], loggedInUsername)
+        ) {
+            removeReactionCountDisplays();
+            return;
+        }
+
+        const statusId = match[2];
+
+        for (const element of document.querySelectorAll(
+            '.x-reaction-tab-count, .x-quote-count-after-retweet'
+        )) {
+            if (element.dataset.statusId !== statusId) {
+                if (element.classList.contains(
+                    'x-quote-count-after-retweet'
+                )) {
+                    element.parentElement?.classList.remove(
+                        'x-quote-count-host'
+                    );
+                    element.parentElement?.classList.remove(
+                        'x-quote-count-stacked'
+                    );
+                }
+                element.remove();
+            }
+        }
+
+        const viewer = getMediaViewerContext();
+        let counts = reactionCountsByStatusId.get(statusId);
+
+        if (!counts && viewer && viewer.statusId === statusId) {
+            for (const group of viewer.groups) {
+                counts = findReactionCountsNearElement(group, statusId);
+                if (counts) break;
+            }
+
+            if (!counts) {
+                for (const article of document.querySelectorAll(
+                    'article[data-testid="tweet"]'
+                )) {
+                    const postInfo = getPostInfo(article);
+                    if (!postInfo || postInfo.statusId !== statusId) continue;
+
+                    const quoteCount = getQuoteCount(article, statusId);
+                    if (typeof quoteCount === 'number') {
+                        counts = {
+                            quotes: quoteCount,
+                            checkedAt: Date.now()
+                        };
+                        reactionCountsByStatusId.set(statusId, counts);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (!counts) counts = findReactionCountsOnPage(statusId);
+
+        if (!counts) return;
+
+        const tabCounts = {
+            quotes: counts.quotes,
+            retweets: counts.reposts,
+            likes: counts.likes
+        };
+
+        for (const [tab, count] of Object.entries(tabCounts)) {
+            const anchor = document.querySelector(
+                `a[href*="/status/${statusId}/${tab}"][role="tab"]`
+            );
+
+            if (!anchor || typeof count !== 'number') continue;
+
+            const labels = Array.from(
+                anchor.querySelectorAll('span')
+            );
+            const label = labels.find(function (span) {
+                return !span.classList.contains(
+                    'x-reaction-tab-count'
+                ) && !span.querySelector('span') &&
+                    span.textContent.trim();
+            });
+
+            if (!label || !label.parentElement) continue;
+
+            let countLabel = anchor.querySelector(
+                '.x-reaction-tab-count'
+            );
+
+            if (!countLabel) {
+                countLabel = document.createElement('span');
+                countLabel.className = 'x-reaction-tab-count';
+                countLabel.style.cssText =
+                    'margin-left:.25em;font:inherit;color:inherit;' +
+                    'white-space:nowrap';
+                label.insertAdjacentElement('afterend', countLabel);
+            }
+
+            countLabel.dataset.statusId = statusId;
+
+            const nextText = ': ' + formatReactionCount(count);
+            if (countLabel.textContent !== nextText) {
+                countLabel.textContent = nextText;
+            }
+        }
+
+        for (const article of document.querySelectorAll(
+            'article[data-testid="tweet"]'
+        )) {
+            const postInfo = getPostInfo(article);
+            if (!postInfo || postInfo.statusId !== statusId) continue;
+
+            const button = article.querySelector(
+                'button[data-testid="retweet"], ' +
+                'button[data-testid="unretweet"]'
+            );
+
+            updateQuoteCountForButton(
+                button,
+                statusId,
+                counts.quotes
+            );
+            break;
+        }
+
+        if (viewer && viewer.statusId === statusId) {
+            for (const group of viewer.groups) {
+                const button = group.querySelector(
+                    'button[data-testid="retweet"], ' +
+                    'button[data-testid="unretweet"]'
+                );
+
+                updateQuoteCountForButton(
+                    button,
+                    statusId,
+                    counts.quotes
+                );
+            }
+        }
+    }
+
     function getSettingsText() {
         const texts = {
             J: {
                 hideExtras: '雑多な要素を非表示',
                 hideVerifiedBadge: '└ 認証バッジを非表示',
-                showAnalytics: '分析表示 ボタン（自分）',
-                showLikes: 'いいね一覧 ボタン（自分）',
+                showAnalytics: '分析表示 ボタン（自分のみ）',
+                showLikes: 'いいね一覧 ボタン（自分のみ）',
                 showQuotes: '引用一覧 ボタン',
+                showReactionCounts: '└ タブ・リポストに反応数を表示',
                 showViewerPostButton: 'メディアビューアー閉じる ボタン',
                 viewerPostAction: 'メディアビューアーを閉じる',
+                enableMediaThumbnailShortcut: 'メディアタブ用 ショートカット',
+                mediaThumbnailShortcutNote: '【D+サムネをクリック】：詳細ページを表示',
                 showOwnReactionCountsOnly: '自分のポストのみ反応数を表示',
-                reactionCountExceptions: '└ 非表示対象外アカウント',
+                reactionCountExceptions: '└ 非表示の対象外アカウント',
                 register: '登録',
                 exceptionTitle: '対象外アカウント',
                 accountId: 'アカウントID',
@@ -2127,8 +2675,11 @@
                 showAnalytics: 'Analytics button (own posts)',
                 showLikes: 'Likes list button (own posts)',
                 showQuotes: 'Quotes list button',
+                showReactionCounts: '└ Show counts in tabs/repost area',
                 showViewerPostButton: 'Close media viewer button',
                 viewerPostAction: 'Close media viewer',
+                enableMediaThumbnailShortcut: 'Shortcut for the Media tab',
+                mediaThumbnailShortcutNote: '【D+thumbnail click】: Open post details',
                 showOwnReactionCountsOnly: 'Show own-post reaction counts',
                 reactionCountExceptions: '└ Account exceptions',
                 register: 'Add',
@@ -2148,8 +2699,11 @@
                 showAnalytics: '통계 표시 버튼 (본인만)',
                 showLikes: '좋아요 목록 버튼 (본인만)',
                 showQuotes: '인용 목록 버튼',
+                showReactionCounts: '└ 탭・리트윗에 반응 수치 표시',
                 showViewerPostButton: '미디어 뷰어 닫기 버튼',
                 viewerPostAction: '미디어 뷰어 닫기',
+                enableMediaThumbnailShortcut: '미디어탭용 단축키 활성화',
+                mediaThumbnailShortcutNote: '【D+섬네일 클릭】：상세 페이지 표시',
                 showOwnReactionCountsOnly: '본인 글에만 반응 수치 표시',
                 reactionCountExceptions: '└ 비표시 예외 계정',
                 register: '등록',
@@ -2169,8 +2723,11 @@
                 showAnalytics: '数据分析按钮（仅自己）',
                 showLikes: '点赞列表按钮（仅自己）',
                 showQuotes: '引用列表按钮',
+                showReactionCounts: '└ 在标签页和转发栏显示互动数',
                 showViewerPostButton: '关闭媒体查看器按钮',
                 viewerPostAction: '关闭媒体查看器',
+                enableMediaThumbnailShortcut: '媒体标签页内快捷操作',
+                mediaThumbnailShortcutNote: '【D＋点击缩略图】：打开帖子详情',
                 showOwnReactionCountsOnly: '仅在自己的帖子显示互动数',
                 reactionCountExceptions: '└ 不隐藏的例外账号',
                 register: '添加',
@@ -2190,8 +2747,11 @@
                 showAnalytics: '數據分析按鈕（僅自己）',
                 showLikes: '按讚列表按鈕（僅自己）',
                 showQuotes: '引用列表按鈕',
+                showReactionCounts: '└ 在分頁和轉發欄顯示互動數',
                 showViewerPostButton: '關閉媒體檢視器按鈕',
                 viewerPostAction: '關閉媒體檢視器',
+                enableMediaThumbnailShortcut: '媒體分頁內快速操作',
+                mediaThumbnailShortcutNote: '【D＋點擊縮圖】：開啟貼文詳情',
                 showOwnReactionCountsOnly: '僅在自己的貼文顯示互動數',
                 reactionCountExceptions: '└ 不隱藏的例外帳號',
                 register: '新增',
@@ -2230,7 +2790,7 @@
     }
 
     function positionSettingsPopup(popup, button) {
-        const width = 260;
+        const width = 270;
         const mobilePopupMode = isMobileMode();
         const fixedTop = mobilePopupMode ? 28 : 10;
         let preferredTop = 10;
@@ -2539,10 +3099,10 @@
             input.type = 'checkbox';
             input.dataset.setting = key;
             input.checked = isEnabled(settings[key]);
-            const checkboxSize = indent ? 14 : 17;
+            const checkboxSize = indent ? 12 : 16;
             const checkboxColor = getAccentColor();
             input.style.cssText = `width:${checkboxSize}px;height:${checkboxSize}px;` +
-                `margin:0 ${indent ? 1.5 : 0}px 0 0;` +
+                `margin:0 ${indent ? 2 : 0}px 0 0;` +
                 `accent-color:${checkboxColor};flex:0 0 auto;` +
                 `${indent ? 'filter:brightness(0.67) saturate(0.80);' : ''}`;
             label.append(text, input);
@@ -2571,7 +3131,18 @@
 
         checkboxRow(text.showAnalytics, 'showAnalytics');
         checkboxRow(text.showLikes, 'showLikes');
-        checkboxRow(text.showQuotes, 'showQuotes');
+        const showQuotes = checkboxRow(text.showQuotes, 'showQuotes');
+        const showReactionCounts = checkboxRow(
+            text.showReactionCounts,
+            'showReactionCounts',
+            true
+        );
+        showQuotes.parentElement.style.minHeight = '30px';
+        showReactionCounts.parentElement.style.minHeight = '22px';
+        showReactionCounts.parentElement.style.marginTop = '-4px';
+        showReactionCounts.parentElement.querySelector(
+            'span'
+        ).style.fontSize = '12px';
 
         const featureSeparator = document.createElement('div');
         featureSeparator.style.cssText =
@@ -2579,6 +3150,18 @@
         popup.appendChild(featureSeparator);
 
         checkboxRow(text.showViewerPostButton, 'showViewerPostButton');
+        checkboxRow(
+            text.enableMediaThumbnailShortcut,
+            'enableMediaThumbnailShortcut'
+        );
+        const mediaThumbnailShortcutNote = document.createElement('div');
+        mediaThumbnailShortcutNote.textContent =
+            text.mediaThumbnailShortcutNote;
+        mediaThumbnailShortcutNote.style.cssText =
+            'margin-top:-7px;margin-bottom:0;padding-right:4px;' +
+            'font-size:10px;line-height:1.45;white-space:pre-wrap;' +
+            'color:#71767b';
+        popup.appendChild(mediaThumbnailShortcutNote);
         const showFullLikeCounts = checkboxRow(
             text.showFullLikeCounts,
             'showFullLikeCounts'
@@ -2654,7 +3237,7 @@
 
         const languageRow = document.createElement('label');
         languageRow.style.cssText =
-            'margin-top:5px;min-height:31px;display:flex;align-items:center;' +
+            'min-height:36px;display:flex;align-items:center;' +
             'justify-content:space-between;gap:10px';
         const languageLabel = document.createElement('span');
         languageLabel.textContent = text.language;
@@ -2682,12 +3265,12 @@
         popup.appendChild(languageRow);
 
         const colorRow = document.createElement('div');
-        colorRow.style.cssText = 'min-height:42px;display:flex;align-items:center;justify-content:space-between;gap:10px';
+        colorRow.style.cssText = 'min-height:36px;margin-top:-3px;display:flex;align-items:center;justify-content:space-between;gap:10px';
         const colorLabel = document.createElement('span');
         colorLabel.textContent = text.color;
         colorLabel.style.fontWeight = '500';
         const choices = document.createElement('div');
-        choices.style.cssText = 'display:flex;align-items:center;gap:9px';
+        choices.style.cssText = 'display:flex;align-items:center;gap:8px';
         for (let i = 1; i <= 6; i++) {
             const choice = document.createElement('button');
             choice.type = 'button';
@@ -2862,6 +3445,7 @@
         applyDetailedPostLikeCounts();
         ensureViewerPostButton();
         applyOwnReactionCountVisibility();
+        refreshReactionCountDisplays();
         maybeRestoreScrollAnchor();
         ensureSettingsButton();
     }
