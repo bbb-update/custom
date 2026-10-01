@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X - Custom Extras
 // @namespace    x-custom-extras.personal
-// @version      1.5.0
+// @version      1.5.1
 // @description  Personal X extras, direct post buttons, and profile cleanup
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -5020,6 +5020,7 @@
 
         const addCategory = document.createElement('button');
         addCategory.type = 'button';
+        addCategory.className = 'x-muted-add-category';
         addCategory.textContent = getMuteText().addCategory;
         addCategory.style.cssText =
             'margin-left:auto;border:1px solid ' +
@@ -5027,7 +5028,9 @@
             'border-radius:999px;padding:5px 9px;background:' +
             'var(--x-custom-accent, #1d9bf0);color:' +
             (isLightTheme() ? '#0f1419' : '#ffffff') +
-            ';font-size:11px;font-weight:700;cursor:pointer';
+            ';font-size:11px;font-weight:700;cursor:pointer;' +
+            'display:flex;align-items:center;justify-content:center;' +
+            'text-align:center;line-height:1.15';
         addCategory.addEventListener('click', function () {
             const value = window.prompt(getMuteText().addCategoryPrompt);
             const category = String(value || '').trim();
@@ -5041,11 +5044,13 @@
 
         const importButton = document.createElement('button');
         importButton.type = 'button';
+        importButton.className = 'x-muted-transfer-button';
         importButton.innerHTML =
             '<span class="x-muted-transfer-full">Import</span>' +
             '<span class="x-muted-transfer-short">I</span>';
         const exportButton = document.createElement('button');
         exportButton.type = 'button';
+        exportButton.className = 'x-muted-transfer-button';
         exportButton.innerHTML =
             '<span class="x-muted-transfer-full">Export</span>' +
             '<span class="x-muted-transfer-short">E</span>';
@@ -5067,7 +5072,14 @@
             '.' + MANAGER_CLASS + ' .x-muted-transfer-short{display:none}' +
             '@media (max-width:600px){' +
             '.' + MANAGER_CLASS + ' .x-muted-transfer-full{display:none}' +
-            '.' + MANAGER_CLASS + ' .x-muted-transfer-short{display:inline}' +
+            '.' + MANAGER_CLASS + ' .x-muted-transfer-short{' +
+            'display:inline-block;width:100%;font-size:11px;line-height:1;' +
+            'text-align:center;font-weight:700}' +
+            '.' + MANAGER_CLASS + ' .x-muted-transfer-button{' +
+            'width:26px;height:26px;box-sizing:border-box;padding:0;' +
+            'display:flex;align-items:center;justify-content:center}' +
+            '.' + MANAGER_CLASS + ' .x-muted-add-category{' +
+            'text-align:center;justify-content:center}' +
             '}';
 
         const importInput = document.createElement('input');
