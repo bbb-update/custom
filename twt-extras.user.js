@@ -4727,6 +4727,7 @@
         identity.appendChild(createProfileLink(entry));
 
         const category = document.createElement('select');
+        category.className = 'x-muted-category-select';
         category.title = getMuteText().category;
         category.style.cssText =
             'width:98px;height:26px;box-sizing:border-box;' +
@@ -4790,8 +4791,12 @@
             const target = event.target;
             const excluded =
                 category.contains(target) || remove.contains(target);
+            const hoverStartRatio = window.matchMedia(
+                '(max-width:600px)'
+            ).matches ? 0.4 : 0.5;
             const eligible =
-                event.clientX >= rect.left + rect.width / 2 && !excluded;
+                event.clientX >= rect.left + rect.width * hoverStartRatio &&
+                !excluded;
             if (!eligible) {
                 hideUnusedMemo();
                 return;
@@ -5098,6 +5103,8 @@
             'display:flex;align-items:center;justify-content:center}' +
             '.' + MANAGER_CLASS + ' .x-muted-add-category{' +
             'text-align:center;justify-content:center}' +
+            '.' + MANAGER_CLASS + ' .x-muted-category-select{' +
+            'width:59px}' +
             '}';
 
         const importInput = document.createElement('input');
