@@ -3639,7 +3639,7 @@
                 moveUp: '上へ移動', moveDown: '下へ移動', edit: '編集',
                 managerTitle: 'ミュートアカウント',
                 addCategory: 'カテゴリ追加', addCategoryPrompt: '追加するカテゴリ名',
-                notice: 'プロフィールの…メニューから追加するか、\nXのミュートリストページをスクロールすると自動登録されます'
+                notice: 'プロフィールの…メニューから追加するか、Xのミュートリストページをスクロールすると自動登録されます'
             },
             E: {
                 importSuccess: 'Mute list import complete',
@@ -3657,7 +3657,7 @@
                 moveUp: 'Move up', moveDown: 'Move down', edit: 'Edit',
                 managerTitle: 'Muted accounts',
                 addCategory: 'Add category', addCategoryPrompt: 'Category name',
-                notice: 'Add accounts from the profile … menu, \nor scroll through the X mute list page to import them automatically'
+                notice: 'Add accounts from the profile … menu, or scroll through the X mute list page to import them automatically'
             },
             K: {
                 importSuccess: '뮤트 목록 불러오기 완료',
@@ -3870,12 +3870,12 @@
         };
         const blob = new Blob([
             JSON.stringify(data, null, 2)
-        ], { type: 'application/json' });
+        ], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
         link.download = 'x-custom-extras-muted-users-' +
-            new Date().toISOString().slice(0, 10) + '.json';
+            new Date().toISOString().slice(0, 10) + '.txt';
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -5041,21 +5041,38 @@
 
         const importButton = document.createElement('button');
         importButton.type = 'button';
-        importButton.textContent = 'Import';
+        importButton.innerHTML =
+            '<span class="x-muted-transfer-full">Import</span>' +
+            '<span class="x-muted-transfer-short">I</span>';
         const exportButton = document.createElement('button');
         exportButton.type = 'button';
-        exportButton.textContent = 'Export';
+        exportButton.innerHTML =
+            '<span class="x-muted-transfer-full">Export</span>' +
+            '<span class="x-muted-transfer-short">E</span>';
         for (const button of [importButton, exportButton]) {
             button.style.cssText =
-                'margin-left:5px;border:1px solid ' + theme.border + ';' +
+                'border:1px solid ' + theme.border + ';' +
                 'border-radius:999px;padding:5px 9px;background:transparent;' +
                 'color:' + theme.text + ';font-size:11px;font-weight:700;' +
                 'cursor:pointer;white-space:nowrap';
         }
 
+        const transferButtons = document.createElement('div');
+        transferButtons.style.cssText =
+            'display:flex;align-items:center;gap:2px;margin-left:6px';
+        transferButtons.append(importButton, exportButton);
+
+        const responsiveStyle = document.createElement('style');
+        responsiveStyle.textContent =
+            '.' + MANAGER_CLASS + ' .x-muted-transfer-short{display:none}' +
+            '@media (max-width:600px){' +
+            '.' + MANAGER_CLASS + ' .x-muted-transfer-full{display:none}' +
+            '.' + MANAGER_CLASS + ' .x-muted-transfer-short{display:inline}' +
+            '}';
+
         const importInput = document.createElement('input');
         importInput.type = 'file';
-        importInput.accept = 'application/json,.json';
+        importInput.accept = 'text/plain,.txt,application/json,.json';
         importInput.style.display = 'none';
         importButton.addEventListener('click', function () {
             importInput.value = '';
@@ -5090,13 +5107,12 @@
         header.append(
             title,
             addCategory,
-            importButton,
-            exportButton,
+            transferButtons,
             importInput,
             close
         );
         panel.append(header, notice, list);
-        overlay.appendChild(panel);
+        overlay.append(responsiveStyle, panel);
         overlay.addEventListener('click', function (event) {
             if (event.target === overlay) closeManager();
         });
