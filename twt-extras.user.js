@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X - Custom Extras
 // @namespace    x-custom-extras.personal
-// @version      1.3.0
+// @version      1.5.0
 // @description  Personal X extras, direct post buttons, and profile cleanup
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -9,6 +9,7 @@
 // @grant        unsafeWindow
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_openInTab
 // @updateURL    https://raw.githubusercontent.com/bbb-update/custom/main/twt-extras.user.js
 // @downloadURL  https://raw.githubusercontent.com/bbb-update/custom/main/twt-extras.user.js
 // ==/UserScript==
@@ -29,6 +30,7 @@
         showOwnReactionCountsOnly: 'O',
         showFullLikeCounts: 'O',
         reactionCountExceptions: [],
+        hideMutedAccounts: 'O',
         language: 'J',
         colorTheme: 5,
         hideFollowerCount: 'X',
@@ -46,6 +48,7 @@
             'enableMediaThumbnailShortcut',
             'showOwnReactionCountsOnly',
             'showFullLikeCounts',
+            'hideMutedAccounts',
             'hideFollowerCount', 'hideFollowerLink'
         ]) {
             result[key] = result[key] === 'X' ? 'X' : 'O';
@@ -93,6 +96,7 @@
 
     let settings = loadSettings();
     let mediaThumbnailDetailKeyDown = false;
+    let mutedUserFeature = null;
 
     function isMobileMode() {
         return /Android|Mobi|iPhone|iPad|iPod/i.test(
@@ -276,7 +280,6 @@
     }
 
     document.addEventListener('keydown', function (event) {
-        if (event.code !== 'KeyD') return;
         const target = event.target;
         if (target && typeof target.closest === 'function' &&
             target.closest(
@@ -285,7 +288,42 @@
             )) {
             return;
         }
-        mediaThumbnailDetailKeyDown = true;
+
+        if (event.code === 'KeyD') {
+            mediaThumbnailDetailKeyDown = true;
+            return;
+        }
+
+        if (
+            event.code === 'KeyF' &&
+            mediaThumbnailDetailKeyDown &&
+            !event.repeat
+        ) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            settings.showOwnReactionCountsOnly = isEnabled(
+                settings.showOwnReactionCountsOnly
+            ) ? 'X' : 'O';
+            const persisted = loadSettings();
+            persisted.showOwnReactionCountsOnly =
+                settings.showOwnReactionCountsOnly;
+            saveSettings(persisted);
+            if (settingsPreview) {
+                settingsPreview.showOwnReactionCountsOnly =
+                    settings.showOwnReactionCountsOnly;
+            }
+            const popupCheckbox = document.querySelector(
+                '.x-extras-settings-popup ' +
+                'input[data-setting="showOwnReactionCountsOnly"]'
+            );
+            if (popupCheckbox) {
+                popupCheckbox.checked = isEnabled(
+                    settings.showOwnReactionCountsOnly
+                );
+            }
+            scanArticles();
+        }
     }, true);
 
     document.addEventListener('keyup', function (event) {
@@ -2091,9 +2129,9 @@
             return String(count).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
         }
 
-        if (/[万萬만]/.test(originalText)) {
+        if (/[万萬\uB9CC]/.test(originalText)) {
             return (Math.floor(count / 100) / 100).toFixed(2) +
-                originalText.match(/[万萬만]/)[0];
+                originalText.match(/[万萬\uB9CC]/)[0];
         }
 
         if (/k/i.test(originalText)) {
@@ -2662,6 +2700,8 @@
                 exceptionTitle: '対象外アカウント',
                 accountId: 'アカウントID',
                 showFullLikeCounts: '分析：いいね数を全桁表示',
+                hideMutedAccounts: 'ミュートアカウントを非表示',
+                mutedAccountsManager: 'ミュートリスト管理',
                 hideFollowerCount: 'フォロワー数を非表示',
                 hideFollowerLink: '└ 一覧リンクも非表示',
                 language: '表示言語',
@@ -2686,6 +2726,8 @@
                 exceptionTitle: 'Accounts with counts',
                 accountId: 'Account ID',
                 showFullLikeCounts: 'Analytics: Show full like count',
+                hideMutedAccounts: 'Hide muted accounts',
+                mutedAccountsManager: 'Manage muted accounts',
                 hideFollowerCount: 'Hide follower count',
                 hideFollowerLink: '└ Hide follower list link too',
                 language: 'Language',
@@ -2710,6 +2752,8 @@
                 exceptionTitle: '예외 계정 등록',
                 accountId: '계정 ID',
                 showFullLikeCounts: '통계 : 좋아요 전체 수치 표시',
+                hideMutedAccounts: '뮤트 계정 비표시',
+                mutedAccountsManager: '뮤트 목록 관리',
                 hideFollowerCount: '팔로워 숫자 비표시',
                 hideFollowerLink: '└ 목록 링크도 비표시',
                 language: '표시 언어',
@@ -2734,6 +2778,8 @@
                 exceptionTitle: '例外账号',
                 accountId: '账号 ID',
                 showFullLikeCounts: '数据分析：显示完整点赞数',
+                hideMutedAccounts: '隐藏静音账号',
+                mutedAccountsManager: '管理静音列表',
                 hideFollowerCount: '隐藏粉丝数',
                 hideFollowerLink: '└ 同时隐藏列表链接',
                 language: '显示语言',
@@ -2758,6 +2804,8 @@
                 exceptionTitle: '例外帳號',
                 accountId: '帳號 ID',
                 showFullLikeCounts: '數據分析：顯示完整按讚數',
+                hideMutedAccounts: '隱藏靜音帳號',
+                mutedAccountsManager: '管理靜音列表',
                 hideFollowerCount: '隱藏追蹤者人數',
                 hideFollowerLink: '└ 同時隱藏列表連結',
                 language: '顯示語言',
@@ -3170,6 +3218,9 @@
             text.showOwnReactionCountsOnly,
             'showOwnReactionCountsOnly'
         );
+        showOwnReactionCountsOnly.parentElement.querySelector(
+            'span'
+        ).title = '(Shortcut: D + F)';
 
         function applySettingsPreview() {
             settings.showFullLikeCounts =
@@ -3219,6 +3270,40 @@
         register.addEventListener('click', openExceptionAccountsPopup);
         exceptionRow.append(exceptionLabel, register);
         popup.appendChild(exceptionRow);
+
+        const privacySeparator = document.createElement('div');
+        privacySeparator.style.cssText =
+            `height:1px;margin:6px 0;background:${base.border};opacity:.85;`;
+        popup.appendChild(privacySeparator);
+
+        const hideMutedAccounts = checkboxRow(
+            text.hideMutedAccounts,
+            'hideMutedAccounts'
+        );
+        const mutedAccountsManager = document.createElement('button');
+        mutedAccountsManager.type = 'button';
+        mutedAccountsManager.title = text.mutedAccountsManager;
+        mutedAccountsManager.setAttribute(
+            'aria-label',
+            text.mutedAccountsManager
+        );
+        mutedAccountsManager.style.cssText =
+            `width:24px;height:24px;margin-left:auto;padding:0;border:0;` +
+            `background:transparent;color:${getAccentColor()};cursor:pointer;` +
+            `display:flex;align-items:center;justify-content:center;`;
+        mutedAccountsManager.innerHTML =
+            '<svg viewBox="0 -960 960 960" aria-hidden="true" ' +
+            'style="width:20px;height:20px;display:block;fill:currentColor;' +
+            'pointer-events:none"><path d="M120-240v-80h720v80H120Zm0-200v-80h720v80H120Zm0-200v-80h720v80H120Z"/></svg>';
+        mutedAccountsManager.addEventListener('click', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (mutedUserFeature) mutedUserFeature.openManager();
+        });
+        hideMutedAccounts.parentElement.insertBefore(
+            mutedAccountsManager,
+            hideMutedAccounts
+        );
 
         const followerCount = checkboxRow(text.hideFollowerCount, 'hideFollowerCount');
         const followerLink = checkboxRow(text.hideFollowerLink, 'hideFollowerLink', true);
@@ -3448,6 +3533,7 @@
         refreshReactionCountDisplays();
         maybeRestoreScrollAnchor();
         ensureSettingsButton();
+        if (mutedUserFeature) mutedUserFeature.scan();
     }
 
     let scanScheduled = false;
@@ -3526,4 +3612,1553 @@
         }
         ensureSettingsButton();
     }, 1000);
+
+
+    mutedUserFeature = (function () {
+    const STORAGE_KEY = 'x-custom-extras-muted-users-test-v1';
+    const CATEGORIES_KEY = 'x-custom-extras-muted-categories-test-v1';
+    const MENU_ITEM_CLASS = 'x-custom-extras-muted-add';
+    const MANAGER_CLASS = 'x-custom-extras-muted-manager';
+
+    function getMuteText() {
+        const texts = {
+            J: {
+                importSuccess: 'ミュートリストの読み込みが完了しました',
+                importError: '読み込めないミュートリストファイルです',
+                renameCategory: '新しいカテゴリ名',
+                deleteCategory: 'カテゴリを削除すると、中のアカウントは未分類へ移動します。',
+                menuRegistered: 'Custom Extras：ミュートリストに登録済み',
+                menuAdd: 'Custom Extras：ミュートリストに追加',
+                added: '追加しました',
+                mutedProfile: 'ミュート中のユーザーです',
+                showAnyway: 'それでも表示',
+                notePlaceholder: 'このアカウントを非表示にした理由',
+                cancel: 'キャンセル', save: '保存', category: 'カテゴリ',
+                uncategorized: '未分類', memo: 'メモ', noMemo: 'メモなし',
+                remove: '削除', empty: '登録されたアカウントはありません',
+                moveUp: '上へ移動', moveDown: '下へ移動', edit: '編集',
+                managerTitle: 'ミュートアカウント',
+                addCategory: 'カテゴリ追加', addCategoryPrompt: '追加するカテゴリ名',
+                notice: 'プロフィールの…メニューから追加するか、\nXのミュートリストページをスクロールすると自動登録されます'
+            },
+            E: {
+                importSuccess: 'Mute list import complete',
+                importError: 'This mute list file cannot be imported',
+                renameCategory: 'New category name',
+                deleteCategory: 'Deleting this category moves its accounts to Uncategorized.',
+                menuRegistered: 'Custom Extras: Added to mute list',
+                menuAdd: 'Custom Extras: Add to mute list',
+                added: 'added', mutedProfile: 'This user is muted',
+                showAnyway: 'Show anyway',
+                notePlaceholder: 'Reason for hiding this account',
+                cancel: 'Cancel', save: 'Save', category: 'Category',
+                uncategorized: 'Uncategorized', memo: 'Note', noMemo: 'No note',
+                remove: 'Delete', empty: 'No accounts registered',
+                moveUp: 'Move up', moveDown: 'Move down', edit: 'Edit',
+                managerTitle: 'Muted accounts',
+                addCategory: 'Add category', addCategoryPrompt: 'Category name',
+                notice: 'Add accounts from the profile … menu, \nor scroll through the X mute list page to import them automatically'
+            },
+            K: {
+                importSuccess: '뮤트 목록 불러오기 완료',
+                importError: '불러올 수 없는 뮤트 목록 파일입니다',
+                renameCategory: '새 카테고리 이름',
+                deleteCategory: '카테고리를 삭제하면 안의 계정은 미분류로 이동합니다',
+                menuRegistered: 'Custom Extras : 뮤트 목록에 등록됨',
+                menuAdd: 'Custom Extras : 뮤트 목록에 추가',
+                added: '추가됨', mutedProfile: '뮤트 중인 유저입니다',
+                showAnyway: '그래도 보기',
+                notePlaceholder: '이 계정을 비표시한 이유',
+                cancel: '취소', save: '저장', category: '카테고리',
+                uncategorized: '미분류', memo: '메모', noMemo: '메모 없음',
+                remove: '삭제', empty: '등록된 계정이 없음',
+                moveUp: '위로 이동', moveDown: '아래로 이동', edit: '편집',
+                managerTitle: '뮤트 비표시 계정',
+                addCategory: '카테고리 추가', addCategoryPrompt: '추가할 카테고리 이름',
+                notice: '프로필의 … 메뉴에서 추가하거나 X 뮤트 목록 페이지를 스크롤하면 자동으로 등록됩니다'
+            },
+            SC: {
+                importSuccess: '静音列表导入完成', importError: '无法导入此静音列表文件',
+                renameCategory: '新分类名称',
+                deleteCategory: '删除分类后，其中的账号将移至未分类。',
+                menuRegistered: 'Custom Extras：已添加到静音列表',
+                menuAdd: 'Custom Extras：添加到静音列表', added: '已添加',
+                mutedProfile: '这是已静音的用户', showAnyway: '仍然显示',
+                notePlaceholder: '隐藏此账号的原因', cancel: '取消', save: '保存',
+                category: '分类', uncategorized: '未分类', memo: '备注',
+                noMemo: '无备注', remove: '删除', empty: '没有已添加的账号',
+                moveUp: '上移', moveDown: '下移', edit: '编辑',
+                managerTitle: '隐藏的静音账号', addCategory: '添加分类',
+                addCategoryPrompt: '要添加的分类名称',
+                notice: '可从个人资料的…菜单添加，或滚动 X 静音列表页面自动导入'
+            },
+            TC: {
+                importSuccess: '靜音列表匯入完成', importError: '無法匯入此靜音列表檔案',
+                renameCategory: '新分類名稱',
+                deleteCategory: '刪除分類後，其中的帳號將移至未分類。',
+                menuRegistered: 'Custom Extras：已加入靜音列表',
+                menuAdd: 'Custom Extras：加入靜音列表', added: '已加入',
+                mutedProfile: '這是已靜音的使用者', showAnyway: '仍然顯示',
+                notePlaceholder: '隱藏此帳號的原因', cancel: '取消', save: '儲存',
+                category: '分類', uncategorized: '未分類', memo: '備註',
+                noMemo: '無備註', remove: '刪除', empty: '沒有已加入的帳號',
+                moveUp: '上移', moveDown: '下移', edit: '編輯',
+                managerTitle: '隱藏的靜音帳號', addCategory: '新增分類',
+                addCategoryPrompt: '要新增的分類名稱',
+                notice: '可從個人資料的…選單加入，或捲動 X 靜音列表頁面自動匯入'
+            }
+        };
+        return texts[settings.language] || texts.J;
+    }
+    let hiddenCells = new Set();
+    let profileHiddenElements = new Set();
+    let profileMaskedStyles = new Map();
+    let expandedManagerCategories = new Set();
+    let scanScheduled = false;
+    let importScheduled = false;
+    let revealedProfileUsername = '';
+    let previousPath = location.pathname;
+
+    function normalizeUsername(value) {
+        const username = String(value || '')
+            .trim()
+            .replace(/^@+/, '')
+            .toLowerCase();
+        return /^[a-z0-9_]{1,15}$/.test(username) ? username : '';
+    }
+
+    function normalizeEntry(value) {
+        if (!value || typeof value !== 'object') return null;
+        const username = normalizeUsername(value.username);
+        if (!username) return null;
+        return {
+            username,
+            name: String(value.name || '').trim(),
+            category: String(value.category || '').trim(),
+            note: String(value.note || '').trim()
+        };
+    }
+
+    function loadEntries() {
+        let source = [];
+        try {
+            source = GM_getValue(STORAGE_KEY, []);
+        } catch (e) {}
+
+        const result = [];
+        for (const value of Array.isArray(source) ? source : []) {
+            const entry = normalizeEntry(value);
+            if (!entry) continue;
+            const existing = result.find(function (item) {
+                return item.username === entry.username;
+            });
+            if (existing) {
+                if (!existing.name && entry.name) existing.name = entry.name;
+            } else {
+                result.push(entry);
+            }
+        }
+        return result;
+    }
+
+    function saveEntries(entries) {
+        const normalized = [];
+        for (const value of entries) {
+            const entry = normalizeEntry(value);
+            if (!entry) continue;
+            const existing = normalized.find(function (item) {
+                return item.username === entry.username;
+            });
+            if (existing) {
+                if (entry.name) existing.name = entry.name;
+                if (entry.category) existing.category = entry.category;
+                if (entry.note) existing.note = entry.note;
+            } else {
+                normalized.push(entry);
+            }
+        }
+        normalized.sort(function (a, b) {
+            return a.username.localeCompare(b.username);
+        });
+        GM_setValue(STORAGE_KEY, normalized);
+        scheduleScan();
+        refreshManager();
+        return normalized;
+    }
+
+    function addEntry(username, name) {
+        username = normalizeUsername(username);
+        if (!username) return false;
+
+        const entries = loadEntries();
+        const existing = entries.find(function (item) {
+            return item.username === username;
+        });
+
+        if (existing) {
+            if (!existing.name && name) {
+                existing.name = String(name).trim();
+                saveEntries(entries);
+            }
+            return false;
+        }
+
+        entries.push({
+            username,
+            name: String(name || '').trim(),
+            category: '',
+            note: ''
+        });
+        saveEntries(entries);
+        return true;
+    }
+
+    function removeEntry(username) {
+        username = normalizeUsername(username);
+        saveEntries(loadEntries().filter(function (item) {
+            return item.username !== username;
+        }));
+    }
+
+    function updateEntry(username, changes) {
+        username = normalizeUsername(username);
+        const entries = loadEntries();
+        const entry = entries.find(function (item) {
+            return item.username === username;
+        });
+        if (!entry) return;
+        Object.assign(entry, changes);
+        saveEntries(entries);
+    }
+
+    function loadCategories() {
+        let source = [];
+        try {
+            source = GM_getValue(CATEGORIES_KEY, []);
+        } catch (e) {}
+        const result = [];
+        for (const value of Array.isArray(source) ? source : []) {
+            const category = String(value || '').trim();
+            if (category && !result.includes(category)) result.push(category);
+        }
+        for (const entry of loadEntries()) {
+            if (entry.category && !result.includes(entry.category)) {
+                result.push(entry.category);
+            }
+        }
+        return result;
+    }
+
+    function saveCategories(categories) {
+        const result = [];
+        for (const value of categories) {
+            const category = String(value || '').trim();
+            if (category && !result.includes(category)) result.push(category);
+        }
+        GM_setValue(CATEGORIES_KEY, result);
+        refreshManager();
+        return result;
+    }
+
+    function exportMuteData() {
+        const data = {
+            format: 'x-custom-extras-muted-users',
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            entries: loadEntries(),
+            categories: loadCategories()
+        };
+        const blob = new Blob([
+            JSON.stringify(data, null, 2)
+        ], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'x-custom-extras-muted-users-' +
+            new Date().toISOString().slice(0, 10) + '.json';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () {
+            URL.revokeObjectURL(url);
+        }, 0);
+    }
+
+    function importMuteData(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.addEventListener('load', function () {
+            try {
+                const data = JSON.parse(String(reader.result || ''));
+                if (
+                    !data ||
+                    data.format !== 'x-custom-extras-muted-users' ||
+                    !Array.isArray(data.entries)
+                ) throw new Error('invalid');
+
+                const merged = new Map(loadEntries().map(function (entry) {
+                    return [entry.username, entry];
+                }));
+                for (const value of data.entries) {
+                    const entry = normalizeEntry(value);
+                    if (entry) merged.set(entry.username, entry);
+                }
+
+                const categories = loadCategories();
+                for (const value of Array.isArray(data.categories)
+                    ? data.categories
+                    : []) {
+                    const category = String(value || '').trim();
+                    if (category && !categories.includes(category)) {
+                        categories.push(category);
+                    }
+                }
+                for (const entry of merged.values()) {
+                    if (
+                        entry.category &&
+                        !categories.includes(entry.category)
+                    ) categories.push(entry.category);
+                }
+
+                GM_setValue(CATEGORIES_KEY, categories);
+                saveEntries(Array.from(merged.values()));
+                window.alert(getMuteText().importSuccess);
+            } catch (e) {
+                window.alert(getMuteText().importError);
+            }
+        });
+        reader.readAsText(file);
+    }
+
+    function renameCategory(category) {
+        const value = window.prompt(getMuteText().renameCategory, category);
+        const nextCategory = String(value || '').trim();
+        if (!nextCategory || nextCategory === category) return;
+
+        if (expandedManagerCategories.delete(category)) {
+            expandedManagerCategories.add(nextCategory);
+        }
+
+        const categories = loadCategories().map(function (item) {
+            return item === category ? nextCategory : item;
+        });
+        GM_setValue(CATEGORIES_KEY, Array.from(new Set(categories)));
+
+        const entries = loadEntries();
+        for (const entry of entries) {
+            if (entry.category === category) {
+                entry.category = nextCategory;
+            }
+        }
+        saveEntries(entries);
+    }
+
+    function deleteCategory(category) {
+        if (!window.confirm(
+            '"' + category + '"\n' + getMuteText().deleteCategory
+        )) return;
+
+        expandedManagerCategories.delete(category);
+
+        GM_setValue(
+            CATEGORIES_KEY,
+            loadCategories().filter(function (item) {
+                return item !== category;
+            })
+        );
+
+        const entries = loadEntries();
+        for (const entry of entries) {
+            if (entry.category === category) entry.category = '';
+        }
+        saveEntries(entries);
+    }
+
+    function moveCategory(category, offset) {
+        const categories = loadCategories();
+        const index = categories.indexOf(category);
+        const nextIndex = index + offset;
+        if (
+            index < 0 ||
+            nextIndex < 0 ||
+            nextIndex >= categories.length
+        ) return;
+        const temporary = categories[index];
+        categories[index] = categories[nextIndex];
+        categories[nextIndex] = temporary;
+        saveCategories(categories);
+    }
+
+    function getTheme() {
+        const background = getComputedStyle(document.body).backgroundColor;
+        const light = background === 'rgb(255, 255, 255)' ||
+            background === 'rgba(0, 0, 0, 0)';
+        return light ? {
+            background: '#ffffff',
+            text: '#0f1419',
+            subtext: '#536471',
+            border: '#cfd9de'
+        } : {
+            background: '#000000',
+            text: '#e7e9ea',
+            subtext: '#71767b',
+            border: '#2f3336'
+        };
+    }
+
+    function showToast(message) {
+        document.querySelector('.x-custom-extras-muted-toast')?.remove();
+        const toast = document.createElement('div');
+        toast.className = 'x-custom-extras-muted-toast';
+        toast.textContent = message;
+        toast.style.cssText =
+            'position:fixed;left:50%;bottom:32px;transform:translateX(-50%);' +
+            'z-index:2147483647;padding:10px 16px;border-radius:8px;' +
+            'background:var(--x-custom-accent, #1d9bf0);color:#fff;font:700 14px Arial,sans-serif;' +
+            'box-shadow:0 4px 18px rgba(0,0,0,.3)';
+        document.body.appendChild(toast);
+        setTimeout(function () {
+            toast.remove();
+        }, 1600);
+    }
+
+    function getUsernameFromPath(pathname) {
+        let decoded = '';
+        try {
+            decoded = decodeURIComponent(pathname || '');
+        } catch (e) {
+            decoded = pathname || '';
+        }
+        const match = decoded.match(/^\/([A-Za-z0-9_]{1,15})(?:\/|$)/);
+        return match ? normalizeUsername(match[1]) : '';
+    }
+
+    function findProfileName(username) {
+        const titleMatch = document.title.match(
+            new RegExp('^(.+?)\\s*\\(@' + username + '\\)', 'i')
+        );
+        if (titleMatch && titleMatch[1].trim()) {
+            return titleMatch[1].trim();
+        }
+
+        const header = document.querySelector(
+            'main [data-testid="UserName"], [data-testid="UserName"]'
+        );
+        if (!header) return '';
+
+        const texts = Array.from(header.querySelectorAll('span'))
+            .map(function (span) {
+                return span.textContent.trim();
+            })
+            .filter(Boolean);
+
+        for (const text of texts) {
+            if (text.toLowerCase() === '@' + username) continue;
+            if (text.startsWith('@')) continue;
+            return text;
+        }
+        return '';
+    }
+
+    function getProfileMenuTarget(menu) {
+        const aboutLink = Array.from(menu.querySelectorAll(
+            'a[href]'
+        )).find(function (link) {
+            return /^\/[A-Za-z0-9_]{1,15}\/about\/?$/.test(
+                new URL(link.href, location.origin).pathname
+            );
+        });
+
+        let username = '';
+        if (aboutLink) {
+            username = getUsernameFromPath(
+                new URL(aboutLink.href, location.origin).pathname
+            );
+        }
+
+        if (!username) {
+            const blockText = menu.querySelector(
+                '[data-testid="block"]'
+            )?.textContent || '';
+            const match = blockText.match(/@([A-Za-z0-9_]{1,15})/);
+            if (match) username = normalizeUsername(match[1]);
+        }
+
+        if (!username) return null;
+        return {
+            username,
+            name: findProfileName(username)
+        };
+    }
+
+    function replaceMenuItemContent(item, text) {
+        item.removeAttribute('data-testid');
+        item.removeAttribute('href');
+        item.setAttribute('role', 'menuitem');
+        item.setAttribute('tabindex', '0');
+        item.classList.add(MENU_ITEM_CLASS);
+        item.querySelectorAll('[id]').forEach(function (element) {
+            element.removeAttribute('id');
+        });
+
+        const svg = item.querySelector('svg');
+        if (svg) {
+            svg.setAttribute('viewBox', '0 0 24 24');
+            svg.innerHTML =
+                '<g><path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7V4z"></path></g>';
+        }
+
+        item.style.setProperty('color', 'var(--x-custom-accent, #1d9bf0)', 'important');
+        for (const element of item.querySelectorAll('div, span, svg, path')) {
+            element.style.setProperty('color', 'var(--x-custom-accent, #1d9bf0)', 'important');
+            if (element.matches('svg, path')) {
+                element.style.setProperty('fill', 'var(--x-custom-accent, #1d9bf0)', 'important');
+            }
+        }
+
+        const spans = item.querySelectorAll('span');
+        const label = spans[spans.length - 1];
+        if (label) label.textContent = text;
+    }
+
+    function closeMenu(menu, afterClose) {
+        const escapeEvent = {
+            key: 'Escape',
+            code: 'Escape',
+            bubbles: true
+        };
+        document.dispatchEvent(new KeyboardEvent('keydown', escapeEvent));
+        window.dispatchEvent(new KeyboardEvent('keydown', escapeEvent));
+
+        setTimeout(function () {
+            if (menu.isConnected) {
+                const layers = document.getElementById('layers');
+                let menuLayer = menu;
+                if (layers && layers.contains(menu)) {
+                    while (
+                        menuLayer.parentElement &&
+                        menuLayer.parentElement !== layers
+                    ) {
+                        menuLayer = menuLayer.parentElement;
+                    }
+                }
+                menuLayer.remove();
+            }
+            if (typeof afterClose === 'function') afterClose();
+        }, 0);
+    }
+
+    function addProfileMenuItem(menu) {
+        if (menu.querySelector('.' + MENU_ITEM_CLASS)) return;
+        const target = getProfileMenuTarget(menu);
+        if (!target) return;
+
+        const items = menu.querySelectorAll('[role="menuitem"]');
+        const source = items[items.length - 1];
+        if (!source) return;
+
+        const item = source.cloneNode(true);
+        const exists = loadEntries().some(function (entry) {
+            return entry.username === target.username;
+        });
+        replaceMenuItemContent(
+            item,
+            exists
+                ? getMuteText().menuRegistered
+                : getMuteText().menuAdd
+        );
+
+        function activate(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            if (exists) {
+                closeMenu(menu, openManager);
+                return;
+            } else {
+                addEntry(target.username, target.name);
+                showToast(
+                    (target.name ? target.name + '  ' : '') +
+                    '@' + target.username + ' ' + getMuteText().added
+                );
+            }
+            closeMenu(menu);
+        }
+
+        item.addEventListener('click', activate, true);
+        item.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' || event.key === ' ') {
+                activate(event);
+            }
+        }, true);
+        source.parentElement.appendChild(item);
+    }
+
+    function scanProfileMenus() {
+        for (const menu of document.querySelectorAll('[role="menu"]')) {
+            if (!menu.querySelector('[data-testid="mute"]')) continue;
+            addProfileMenuItem(menu);
+        }
+    }
+
+    function getUserCellEntry(cell) {
+        const spans = Array.from(cell.querySelectorAll('span'))
+            .map(function (span) {
+                return span.textContent.trim();
+            })
+            .filter(Boolean);
+
+        let username = '';
+        let handleIndex = -1;
+        for (let index = 0; index < spans.length; index++) {
+            const match = spans[index].match(/^@([A-Za-z0-9_]{1,15})$/);
+            if (!match) continue;
+            username = normalizeUsername(match[1]);
+            handleIndex = index;
+            break;
+        }
+
+        if (!username) {
+            for (const link of cell.querySelectorAll('a[href]')) {
+                const pathUsername = getUsernameFromPath(
+                    new URL(link.href, location.origin).pathname
+                );
+                if (pathUsername) {
+                    username = pathUsername;
+                    break;
+                }
+            }
+        }
+
+        if (!username) return null;
+
+        let name = '';
+        for (let index = handleIndex - 1; index >= 0; index--) {
+            const text = spans[index];
+            if (!text || text.startsWith('@')) continue;
+            name = text;
+            break;
+        }
+
+        return { username, name };
+    }
+
+    function importVisibleXMutedUsers() {
+        if (!/^\/settings\/muted\/all\/?$/.test(location.pathname)) {
+            return;
+        }
+
+        const entries = loadEntries();
+        let changed = false;
+
+        for (const cell of document.querySelectorAll(
+            '[data-testid="UserCell"]'
+        )) {
+            const entry = getUserCellEntry(cell);
+            if (!entry) continue;
+            const existing = entries.find(function (item) {
+                return item.username === entry.username;
+            });
+            if (!existing) {
+                entries.push(entry);
+                changed = true;
+            } else if (!existing.name && entry.name) {
+                existing.name = entry.name;
+                changed = true;
+            }
+        }
+
+        if (changed) saveEntries(entries);
+    }
+
+    function extractStatusUsernames(article) {
+        const usernames = new Set();
+
+        for (const link of article.querySelectorAll('a[href*="/status/"]')) {
+            let pathname = '';
+            try {
+                pathname = new URL(link.href, location.origin).pathname;
+            } catch (e) {
+                continue;
+            }
+            const match = pathname.match(
+                /^\/([A-Za-z0-9_]{1,15})\/status\/\d+/
+            );
+            if (match) usernames.add(normalizeUsername(match[1]));
+        }
+
+        const socialContext = article.querySelector(
+            '[data-testid="socialContext"]'
+        );
+        if (socialContext) {
+            for (const link of socialContext.querySelectorAll('a[href]')) {
+                let pathname = '';
+                try {
+                    pathname = new URL(link.href, location.origin).pathname;
+                } catch (e) {
+                    continue;
+                }
+                const username = getUsernameFromPath(pathname);
+                if (username) usernames.add(username);
+            }
+
+            const textMatch = socialContext.textContent.match(
+                /@([A-Za-z0-9_]{1,15})/
+            );
+            if (textMatch) {
+                usernames.add(normalizeUsername(textMatch[1]));
+            }
+        }
+
+        usernames.delete('');
+        return usernames;
+    }
+
+    function restoreHiddenCells() {
+        for (const cell of hiddenCells) {
+            if (!cell.isConnected) continue;
+            cell.style.removeProperty('display');
+            delete cell.dataset.customExtrasMutedHidden;
+        }
+        hiddenCells.clear();
+    }
+
+    function applyMutedFilter() {
+        const mutedProfile = getCurrentMutedProfile();
+        if (mutedProfile) {
+            restoreHiddenCells();
+            return;
+        }
+
+        if (/\/[A-Za-z0-9_]{1,15}\/status\/\d+/.test(
+            location.pathname
+        )) {
+            restoreHiddenCells();
+            return;
+        }
+
+        const muted = new Set(loadEntries().map(function (entry) {
+            return entry.username;
+        }));
+
+        const seenCells = new Set();
+        for (const article of document.querySelectorAll(
+            'article[data-testid="tweet"], article'
+        )) {
+            const cell = article.closest('[data-testid="cellInnerDiv"]');
+            if (!cell || seenCells.has(cell)) continue;
+            seenCells.add(cell);
+
+            const usernames = extractStatusUsernames(article);
+            const shouldHide = Array.from(usernames).some(function (username) {
+                return muted.has(username);
+            });
+
+            if (shouldHide) {
+                cell.style.setProperty('display', 'none', 'important');
+                cell.dataset.customExtrasMutedHidden = 'true';
+                hiddenCells.add(cell);
+            } else if (cell.dataset.customExtrasMutedHidden === 'true') {
+                cell.style.removeProperty('display');
+                delete cell.dataset.customExtrasMutedHidden;
+                hiddenCells.delete(cell);
+            }
+        }
+
+        for (const cell of Array.from(hiddenCells)) {
+            if (!cell.isConnected) hiddenCells.delete(cell);
+        }
+    }
+
+    function getCurrentProfileUsername() {
+        const directMatch = location.pathname.match(
+            /^\/([A-Za-z0-9_]{1,15})(?:\/(?:with_replies|media|likes|highlights|articles))?\/?$/
+        );
+        if (directMatch) return normalizeUsername(directMatch[1]);
+
+        const candidates = new Map();
+        for (const tab of document.querySelectorAll(
+            '[data-testid="primaryColumn"] [role="tab"][href]'
+        )) {
+            let pathname = '';
+            try {
+                pathname = new URL(tab.href, location.origin).pathname;
+            } catch (e) {
+                continue;
+            }
+            const match = pathname.match(
+                /^\/([A-Za-z0-9_]{1,15})(?:\/(?:with_replies|media|likes|highlights|articles))?\/?$/
+            );
+            if (!match) continue;
+            const username = normalizeUsername(match[1]);
+            if (!username) continue;
+            candidates.set(username, (candidates.get(username) || 0) + 1);
+        }
+
+        for (const [username, count] of candidates) {
+            if (count >= 2) return username;
+        }
+        return '';
+    }
+
+    function getCurrentMutedProfile() {
+        const username = getCurrentProfileUsername();
+        if (!username) return null;
+        return loadEntries().find(function (entry) {
+            return entry.username === username;
+        }) || null;
+    }
+
+    function restoreMutedProfile() {
+        for (const element of profileHiddenElements) {
+            if (!element.isConnected) continue;
+            element.style.removeProperty('display');
+            delete element.dataset.customExtrasMutedProfileHidden;
+        }
+        profileHiddenElements.clear();
+        for (const [element, properties] of profileMaskedStyles) {
+            if (!element.isConnected) continue;
+            for (const [property, original] of properties) {
+                if (original.value) {
+                    element.style.setProperty(
+                        property,
+                        original.value,
+                        original.priority
+                    );
+                } else {
+                    element.style.removeProperty(property);
+                }
+            }
+        }
+        profileMaskedStyles.clear();
+        document.querySelector(
+            '.x-custom-extras-muted-profile-gate'
+        )?.remove();
+    }
+
+    function hideMutedProfileElement(element) {
+        if (!element || element.dataset.customExtrasMutedProfileHidden) {
+            return;
+        }
+        element.style.setProperty('display', 'none', 'important');
+        element.dataset.customExtrasMutedProfileHidden = 'true';
+        profileHiddenElements.add(element);
+    }
+
+    function setMutedProfileStyle(element, property, value, priority) {
+        if (!element) return;
+        if (!profileMaskedStyles.has(element)) {
+            profileMaskedStyles.set(element, new Map());
+        }
+        const properties = profileMaskedStyles.get(element);
+        if (!properties.has(property)) {
+            properties.set(property, {
+                value: element.style.getPropertyValue(property),
+                priority: element.style.getPropertyPriority(property)
+            });
+        }
+        element.style.setProperty(property, value, priority || '');
+    }
+
+    function revealMutedProfile() {
+        revealedProfileUsername = getCurrentProfileUsername();
+        restoreMutedProfile();
+        restoreHiddenCells();
+    }
+
+    function applyMutedProfileGate() {
+        const entry = getCurrentMutedProfile();
+        if (
+            !entry ||
+            revealedProfileUsername === entry.username
+        ) {
+            restoreMutedProfile();
+            return;
+        }
+
+        const column = document.querySelector(
+            '[data-testid="primaryColumn"]'
+        );
+        if (!column) return;
+
+        const tabList = column.querySelector('[role="tablist"]');
+        const tabContainer =
+            tabList?.closest('[role="navigation"]') ||
+            tabList?.closest('[data-testid="cellInnerDiv"]') ||
+            tabList?.parentElement ||
+            null;
+        const timelineRegions = Array.from(column.querySelectorAll(
+            'section[role="region"]'
+        )).filter(function (section) {
+            return section.querySelector(
+                '[data-testid="cellInnerDiv"], article[data-testid="tweet"]'
+            );
+        });
+
+        hideMutedProfileElement(tabContainer);
+
+        const description = column.querySelector(
+            '[data-testid="UserDescription"]'
+        );
+        const profileItems = column.querySelector(
+            '[data-testid="UserProfileHeader_Items"]'
+        );
+        hideMutedProfileElement(
+            description?.closest('div.r-1adg3ll.r-6gpygo') ||
+            description?.parentElement
+        );
+        hideMutedProfileElement(
+            profileItems?.closest('div.r-1adg3ll.r-6gpygo') ||
+            profileItems?.parentElement
+        );
+
+        const followingLink = column.querySelector(
+            'a[href="/' + entry.username + '/following"]'
+        );
+        const followStats = followingLink?.parentElement?.parentElement || null;
+        hideMutedProfileElement(followStats);
+        if (
+            followStats?.nextElementSibling &&
+            !followStats.nextElementSibling.querySelector('[role="tablist"]')
+        ) {
+            hideMutedProfileElement(followStats.nextElementSibling);
+        }
+
+        const headerPhoto = column.querySelector(
+            'a[href="/' + entry.username + '/header_photo"]'
+        );
+        if (headerPhoto) {
+            const maskColor = getTheme().background === '#ffffff'
+                ? '#cfd9de'
+                : '#16181c';
+            setMutedProfileStyle(
+                headerPhoto,
+                'background-color',
+                maskColor,
+                'important'
+            );
+            for (const image of headerPhoto.querySelectorAll(
+                'img, [style*="background-image"]'
+            )) {
+                setMutedProfileStyle(
+                    image,
+                    'visibility',
+                    'hidden',
+                    'important'
+                );
+            }
+        }
+
+        for (const region of timelineRegions) {
+            hideMutedProfileElement(region);
+        }
+        if (!timelineRegions.length) {
+            for (const article of column.querySelectorAll('article')) {
+                hideMutedProfileElement(
+                    article.closest('[data-testid="cellInnerDiv"]') ||
+                    article
+                );
+            }
+        }
+
+        let gate = column.querySelector(
+            '.x-custom-extras-muted-profile-gate'
+        );
+        if (gate) return;
+
+        const theme = getTheme();
+        gate = document.createElement('div');
+        gate.className = 'x-custom-extras-muted-profile-gate';
+        gate.style.cssText =
+            'padding:34px 20px;text-align:center;border-top:1px solid ' +
+            theme.border + ';border-bottom:1px solid ' + theme.border +
+            ';background:' + theme.background + ';color:' + theme.text;
+
+        const message = document.createElement('div');
+        message.textContent = getMuteText().mutedProfile;
+        message.style.cssText =
+            'font-size:17px;font-weight:700;margin-bottom:14px';
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = getMuteText().showAnyway;
+        button.style.cssText =
+            'border:1px solid var(--x-custom-accent, #1d9bf0);border-radius:999px;' +
+            'padding:8px 18px;background:var(--x-custom-accent, #1d9bf0);color:#ffffff;' +
+            'font-size:14px;font-weight:700;cursor:pointer';
+        button.addEventListener('click', revealMutedProfile);
+        gate.append(message, button);
+
+        const firstTimelineRegion = timelineRegions[0] || null;
+        if (tabContainer && tabContainer.parentElement) {
+            tabContainer.parentElement.insertBefore(gate, tabContainer);
+        } else if (firstTimelineRegion?.parentElement) {
+            firstTimelineRegion.parentElement.insertBefore(
+                gate,
+                firstTimelineRegion
+            );
+        } else {
+            column.appendChild(gate);
+        }
+    }
+
+    function closeManager() {
+        document.querySelector('.' + MANAGER_CLASS)?.remove();
+    }
+
+    function openNoteEditor(entry) {
+        const manager = document.querySelector('.' + MANAGER_CLASS);
+        if (!manager) return;
+        manager.querySelector('[data-note-editor]')?.remove();
+
+        const theme = getTheme();
+        const overlay = document.createElement('div');
+        overlay.dataset.noteEditor = 'true';
+        overlay.style.cssText =
+            'position:absolute;inset:0;z-index:3;background:rgba(0,0,0,.45);' +
+            'display:flex;align-items:center;justify-content:center;padding:20px';
+
+        const box = document.createElement('div');
+        box.style.cssText =
+            'width:100%;max-width:360px;padding:16px;border:1px solid ' +
+            theme.border + ';border-radius:14px;background:' +
+            theme.background + ';color:' + theme.text;
+
+        const title = document.createElement('strong');
+        title.textContent =
+            (entry.name ? entry.name + '  ' : '') + '@' + entry.username;
+
+        const textarea = document.createElement('textarea');
+        textarea.value = entry.note || '';
+        textarea.placeholder = getMuteText().notePlaceholder;
+        textarea.style.cssText =
+            'display:block;width:100%;height:110px;margin:12px 0;' +
+            'padding:10px;resize:vertical;box-sizing:border-box;' +
+            'border:1px solid ' + theme.border + ';border-radius:8px;' +
+            'background:' + theme.background + ';color:' + theme.text +
+            ';font:14px Arial,sans-serif';
+
+        const actions = document.createElement('div');
+        actions.style.cssText =
+            'display:flex;justify-content:flex-end;gap:8px';
+
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = getMuteText().cancel;
+
+        const save = document.createElement('button');
+        save.type = 'button';
+        save.textContent = getMuteText().save;
+
+        for (const button of [cancel, save]) {
+            button.style.cssText =
+                'border:1px solid ' + theme.border + ';border-radius:999px;' +
+                'padding:7px 14px;background:transparent;color:' +
+                theme.text + ';cursor:pointer;font-weight:700';
+        }
+        save.style.background = 'var(--x-custom-accent, #1d9bf0)';
+        save.style.color = '#ffffff';
+        save.style.borderColor = 'var(--x-custom-accent, #1d9bf0)';
+
+        cancel.addEventListener('click', function () {
+            overlay.remove();
+        });
+        save.addEventListener('click', function () {
+            updateEntry(entry.username, {
+                note: textarea.value.trim()
+            });
+            overlay.remove();
+        });
+        overlay.addEventListener('click', function (event) {
+            if (event.target === overlay) overlay.remove();
+        });
+
+        actions.append(cancel, save);
+        box.append(title, textarea, actions);
+        overlay.appendChild(box);
+        manager.appendChild(overlay);
+        textarea.focus();
+    }
+
+    function createProfileLink(entry) {
+        const link = document.createElement('button');
+        link.type = 'button';
+        link.textContent = '@' + entry.username;
+        link.style.cssText =
+            'border:0;padding:0;background:transparent;color:var(--x-custom-accent, #1d9bf0);' +
+            'text-decoration:none;flex:0 0 auto;cursor:pointer;font:inherit;' +
+            'filter:brightness(0.67) saturate(0.80)';
+        link.addEventListener('click', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            const url = 'https://x.com/' + entry.username;
+            if (typeof GM_openInTab === 'function') {
+                GM_openInTab(url, {
+                    active: true,
+                    insert: true,
+                    setParent: true
+                });
+            } else {
+                window.open(url, '_blank', 'noopener,noreferrer');
+            }
+        }, true);
+        return link;
+    }
+
+    function createManagerRow(entry, categories, theme) {
+        const row = document.createElement('div');
+        row.style.cssText =
+            'display:flex;align-items:center;gap:7px;padding:8px 4px;' +
+            'border-bottom:1px solid ' + theme.border + ';font-size:13px';
+
+        const identity = document.createElement('div');
+        identity.style.cssText =
+            'min-width:0;flex:1;display:flex;align-items:baseline;' +
+            'gap:7px;white-space:nowrap;overflow:hidden';
+
+        if (entry.name) {
+            const name = document.createElement('span');
+            name.textContent = entry.name;
+            name.style.cssText =
+                'font-weight:700;overflow:hidden;text-overflow:ellipsis';
+            identity.appendChild(name);
+        }
+        identity.appendChild(createProfileLink(entry));
+
+        const category = document.createElement('select');
+        category.title = getMuteText().category;
+        category.style.cssText =
+            'width:98px;height:26px;box-sizing:border-box;' +
+            'border:1px solid ' + theme.border + ';border-radius:999px;' +
+            'padding:4px 8px;background:' + theme.background + ';color:' +
+            theme.text + ';font-size:11px;font-weight:700';
+        const none = document.createElement('option');
+        none.value = '';
+        none.textContent = getMuteText().uncategorized;
+        category.appendChild(none);
+        for (const value of categories) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = value;
+            category.appendChild(option);
+        }
+        category.value = entry.category || '';
+        category.addEventListener('change', function () {
+            updateEntry(entry.username, {
+                category: category.value
+            });
+        });
+
+        const memo = document.createElement('button');
+        memo.type = 'button';
+        memo.textContent = getMuteText().memo;
+        memo.title = entry.note || getMuteText().noMemo;
+        memo.style.cssText =
+            'border:1px solid ' + theme.border + ';border-radius:999px;' +
+            'padding:4px 8px;background:transparent;color:' + theme.text +
+            ';cursor:pointer;font-size:11px;font-weight:700;' +
+            'transition:opacity .12s ease .5s';
+        if (entry.note) {
+            memo.style.opacity = '1';
+            memo.style.visibility = 'visible';
+        } else {
+            memo.style.opacity = '0';
+            memo.style.visibility = 'hidden';
+        }
+        memo.addEventListener('click', function () {
+            openNoteEditor(entry);
+        });
+
+        let hoverTimer = 0;
+        row.addEventListener('mouseenter', function () {
+            if (entry.note) return;
+            clearTimeout(hoverTimer);
+            hoverTimer = setTimeout(function () {
+                memo.style.visibility = 'visible';
+                memo.style.opacity = '1';
+            }, 500);
+        });
+        row.addEventListener('mouseleave', function () {
+            if (entry.note) return;
+            clearTimeout(hoverTimer);
+            memo.style.opacity = '0';
+            setTimeout(function () {
+                if (memo.style.opacity === '0') {
+                    memo.style.visibility = 'hidden';
+                }
+            }, 120);
+        });
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.textContent = getMuteText().remove;
+        remove.style.cssText =
+            'border:1px solid ' + theme.border + ';border-radius:999px;' +
+            'height:26px;box-sizing:border-box;padding:4px 8px;' +
+            'background:transparent;color:' + theme.text +
+            ';cursor:pointer;font-size:11px;font-weight:700';
+        remove.addEventListener('click', function () {
+            removeEntry(entry.username);
+        });
+
+        row.append(identity, category, memo, remove);
+        return row;
+    }
+
+    function refreshManager() {
+        const manager = document.querySelector('.' + MANAGER_CLASS);
+        if (!manager) return;
+
+        const list = manager.querySelector('[data-muted-list]');
+        const count = manager.querySelector('[data-muted-count]');
+        const theme = getTheme();
+        const entries = loadEntries();
+        const categories = loadCategories();
+        count.textContent = String(entries.length);
+        list.textContent = '';
+
+        if (!entries.length) {
+            const empty = document.createElement('div');
+            empty.textContent = getMuteText().empty;
+            empty.style.cssText =
+                'padding:20px 8px;text-align:center;color:' +
+                theme.subtext;
+            list.appendChild(empty);
+            return;
+        }
+
+        const groups = [''].concat(categories);
+        for (const category of groups) {
+            const members = entries.filter(function (entry) {
+                return (entry.category || '') === category;
+            });
+            if (!members.length && !category) continue;
+
+            const section = document.createElement('section');
+            const headingRow = document.createElement('div');
+            headingRow.style.cssText =
+                'position:relative;display:flex;align-items:center;' +
+                'border-bottom:1px solid ' +
+                theme.border + ';background:' + theme.background;
+            const heading = document.createElement('button');
+            heading.type = 'button';
+            heading.style.cssText =
+                'min-width:0;flex:1;display:flex;align-items:center;gap:5px;' +
+                'padding:11px 4px 8px;border:0;background:transparent;' +
+                'color:var(--x-custom-accent, #1d9bf0);font-size:15px;font-weight:800;' +
+                'cursor:pointer;text-align:left';
+
+            const arrow = document.createElementNS(
+                'http://www.w3.org/2000/svg', 'svg'
+            );
+            arrow.setAttribute('viewBox', '0 -960 960 960');
+            arrow.setAttribute('width', '20');
+            arrow.setAttribute('height', '20');
+            arrow.setAttribute('fill', 'currentColor');
+            const arrowPath = document.createElementNS(
+                'http://www.w3.org/2000/svg', 'path'
+            );
+            arrowPath.setAttribute(
+                'd', 'M400-280v-400l200 200-200 200Z'
+            );
+            arrow.appendChild(arrowPath);
+
+            const headingText = document.createElement('span');
+            headingText.textContent =
+                (category || getMuteText().uncategorized) +
+                ' (' + members.length + ')';
+            heading.append(arrow, headingText);
+
+            const categoryActions = document.createElement('div');
+            categoryActions.style.cssText =
+                'position:absolute;right:4px;display:flex;align-items:center;' +
+                'gap:5px;padding-left:10px;background:' + theme.background +
+                ';visibility:hidden;opacity:0;transition:opacity .12s ease';
+
+            if (category) {
+                const categoryIndex = categories.indexOf(category);
+                const moveUp = document.createElement('button');
+                moveUp.type = 'button';
+                moveUp.textContent = '↑';
+                moveUp.title = getMuteText().moveUp;
+                const moveDown = document.createElement('button');
+                moveDown.type = 'button';
+                moveDown.textContent = '↓';
+                moveDown.title = getMuteText().moveDown;
+                const editCategory = document.createElement('button');
+                editCategory.type = 'button';
+                editCategory.textContent = getMuteText().edit;
+                const removeCategory = document.createElement('button');
+                removeCategory.type = 'button';
+                removeCategory.textContent = getMuteText().remove;
+
+                for (const button of [
+                    moveUp,
+                    moveDown,
+                    editCategory,
+                    removeCategory
+                ]) {
+                    button.style.cssText =
+                        'height:26px;box-sizing:border-box;border:1px solid ' +
+                        theme.border + ';border-radius:999px;padding:4px 8px;' +
+                        'background:transparent;color:' + theme.text + ';' +
+                        'font-size:11px;font-weight:700;cursor:pointer';
+                }
+                moveUp.disabled = categoryIndex === 0;
+                moveDown.disabled = categoryIndex === categories.length - 1;
+                for (const button of [moveUp, moveDown]) {
+                    if (button.disabled) {
+                        button.style.opacity = '.35';
+                        button.style.cursor = 'default';
+                    }
+                }
+                moveUp.addEventListener('click', function () {
+                    moveCategory(category, -1);
+                });
+                moveDown.addEventListener('click', function () {
+                    moveCategory(category, 1);
+                });
+                editCategory.addEventListener('click', function () {
+                    renameCategory(category);
+                });
+                removeCategory.addEventListener('click', function () {
+                    deleteCategory(category);
+                });
+                categoryActions.append(
+                    moveUp,
+                    moveDown,
+                    editCategory,
+                    removeCategory
+                );
+
+                let categoryHoverTimer = 0;
+                headingRow.addEventListener('mouseenter', function () {
+                    clearTimeout(categoryHoverTimer);
+                    categoryHoverTimer = setTimeout(function () {
+                        categoryActions.style.visibility = 'visible';
+                        categoryActions.style.opacity = '1';
+                    }, 500);
+                });
+                headingRow.addEventListener('mouseleave', function () {
+                    clearTimeout(categoryHoverTimer);
+                    categoryActions.style.opacity = '0';
+                    setTimeout(function () {
+                        if (categoryActions.style.opacity === '0') {
+                            categoryActions.style.visibility = 'hidden';
+                        }
+                    }, 120);
+                });
+            }
+
+            const body = document.createElement('div');
+            const expanded = expandedManagerCategories.has(category);
+            body.style.display = expanded ? 'block' : 'none';
+            arrowPath.setAttribute(
+                'd',
+                expanded
+                    ? 'M480-360 280-560h400L480-360Z'
+                    : 'M400-280v-400l200 200-200 200Z'
+            );
+
+            for (const entry of members) {
+                body.appendChild(
+                    createManagerRow(entry, categories, theme)
+                );
+            }
+
+            heading.addEventListener('click', function () {
+                const expanded = body.style.display !== 'none';
+                body.style.display = expanded ? 'none' : 'block';
+                if (expanded) {
+                    expandedManagerCategories.delete(category);
+                } else {
+                    expandedManagerCategories.add(category);
+                }
+                arrowPath.setAttribute(
+                    'd',
+                    expanded
+                        ? 'M400-280v-400l200 200-200 200Z'
+                        : 'M480-360 280-560h400L480-360Z'
+                );
+            });
+
+            headingRow.append(heading, categoryActions);
+            section.append(headingRow, body);
+            list.appendChild(section);
+        }
+    }
+
+    function openManager() {
+        closeManager();
+        expandedManagerCategories.clear();
+        const theme = getTheme();
+        const overlay = document.createElement('div');
+        overlay.className = MANAGER_CLASS;
+        overlay.style.cssText =
+            'position:fixed;inset:0;z-index:2147483646;' +
+            'background:rgba(0,0,0,.45);display:flex;align-items:center;' +
+            'justify-content:center;padding:20px;font-family:Arial,sans-serif';
+
+        const panel = document.createElement('div');
+        panel.style.cssText =
+            'width:min(550px,100%);max-height:72vh;display:flex;' +
+            'flex-direction:column;border:1px solid ' + theme.border + ';' +
+            'border-radius:16px;background:' + theme.background + ';' +
+            'color:' + theme.text + ';box-shadow:0 10px 40px rgba(0,0,0,.4)';
+
+        const header = document.createElement('div');
+        header.style.cssText =
+            'display:flex;align-items:center;padding:14px 16px;' +
+            'border-bottom:1px solid ' + theme.border;
+
+        const title = document.createElement('strong');
+        title.innerHTML =
+            '✦ ' + getMuteText().managerTitle +
+            ' : <span data-muted-count></span>';
+        title.style.fontSize = '18px';
+
+        const addCategory = document.createElement('button');
+        addCategory.type = 'button';
+        addCategory.textContent = getMuteText().addCategory;
+        addCategory.style.cssText =
+            'margin-left:auto;border:1px solid ' +
+            'var(--x-custom-accent, #1d9bf0);' +
+            'border-radius:999px;padding:5px 9px;background:' +
+            'var(--x-custom-accent, #1d9bf0);color:' +
+            (isLightTheme() ? '#0f1419' : '#ffffff') +
+            ';font-size:11px;font-weight:700;cursor:pointer';
+        addCategory.addEventListener('click', function () {
+            const value = window.prompt(getMuteText().addCategoryPrompt);
+            const category = String(value || '').trim();
+            if (!category) return;
+            const categories = loadCategories();
+            if (!categories.includes(category)) {
+                categories.push(category);
+                saveCategories(categories);
+            }
+        });
+
+        const importButton = document.createElement('button');
+        importButton.type = 'button';
+        importButton.textContent = 'Import';
+        const exportButton = document.createElement('button');
+        exportButton.type = 'button';
+        exportButton.textContent = 'Export';
+        for (const button of [importButton, exportButton]) {
+            button.style.cssText =
+                'margin-left:5px;border:1px solid ' + theme.border + ';' +
+                'border-radius:999px;padding:5px 9px;background:transparent;' +
+                'color:' + theme.text + ';font-size:11px;font-weight:700;' +
+                'cursor:pointer;white-space:nowrap';
+        }
+
+        const importInput = document.createElement('input');
+        importInput.type = 'file';
+        importInput.accept = 'application/json,.json';
+        importInput.style.display = 'none';
+        importButton.addEventListener('click', function () {
+            importInput.value = '';
+            importInput.click();
+        });
+        importInput.addEventListener('change', function () {
+            importMuteData(importInput.files?.[0]);
+        });
+        exportButton.addEventListener('click', exportMuteData);
+
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.textContent = '×';
+        close.style.cssText =
+            'margin-left:8px;border:0;background:transparent;color:' +
+            theme.text + ';font-size:26px;line-height:1;cursor:pointer';
+        close.addEventListener('click', closeManager);
+
+        const notice = document.createElement('div');
+        notice.textContent = getMuteText().notice;
+        notice.style.cssText =
+            'padding:10px 16px;color:' + theme.subtext +
+            ';font-size:13px;line-height:1.4;white-space:pre-line;' +
+            'border-bottom:1px solid ' +
+            theme.border;
+
+        const list = document.createElement('div');
+        list.dataset.mutedList = 'true';
+        list.style.cssText =
+            'overflow:auto;padding:0 12px 10px';
+
+        header.append(
+            title,
+            addCategory,
+            importButton,
+            exportButton,
+            importInput,
+            close
+        );
+        panel.append(header, notice, list);
+        overlay.appendChild(panel);
+        overlay.addEventListener('click', function (event) {
+            if (event.target === overlay) closeManager();
+        });
+        document.body.appendChild(overlay);
+        refreshManager();
+    }
+
+    function scheduleImport() {
+        if (importScheduled) return;
+        importScheduled = true;
+        requestAnimationFrame(function () {
+            importScheduled = false;
+            importVisibleXMutedUsers();
+        });
+    }
+
+    function scheduleScan() {
+        if (scanScheduled) return;
+        scanScheduled = true;
+        requestAnimationFrame(function () {
+            scanScheduled = false;
+            if (previousPath !== location.pathname) {
+                previousPath = location.pathname;
+                restoreMutedProfile();
+                const currentProfileUsername =
+                    getCurrentProfileUsername();
+                if (
+                    !currentProfileUsername ||
+                    currentProfileUsername !== revealedProfileUsername
+                ) {
+                    revealedProfileUsername = '';
+                }
+            }
+            scanProfileMenus();
+            applyMutedProfileGate();
+            applyMutedFilter();
+            scheduleImport();
+        });
+    }
+
+
+        function scan() {
+            document.documentElement.style.setProperty(
+                '--x-custom-accent',
+                getAccentColor()
+            );
+            if (!isEnabled(settings.hideMutedAccounts)) {
+                restoreHiddenCells();
+                restoreMutedProfile();
+                closeManager();
+                for (const item of document.querySelectorAll(
+                    '.' + MENU_ITEM_CLASS
+                )) item.remove();
+                return;
+            }
+            scheduleScan();
+        }
+
+        return {
+            scan,
+            openManager
+        };
+    })();
+    mutedUserFeature.scan();
 })();
