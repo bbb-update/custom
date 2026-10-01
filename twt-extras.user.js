@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X - Custom Extras
 // @namespace    x-custom-extras.personal
-// @version      1.5.1
+// @version      1.5.2
 // @description  Personal X extras, direct post buttons, and profile cleanup
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -4758,7 +4758,7 @@
             'border:1px solid ' + theme.border + ';border-radius:999px;' +
             'padding:4px 8px;background:transparent;color:' + theme.text +
             ';cursor:pointer;font-size:11px;font-weight:700;' +
-            'transition:opacity .12s ease .5s';
+            'transition:opacity .12s ease';
         if (entry.note) {
             memo.style.opacity = '1';
             memo.style.visibility = 'visible';
@@ -4771,24 +4771,42 @@
         });
 
         let hoverTimer = 0;
-        row.addEventListener('mouseenter', function () {
+        let memoHoverEligible = false;
+        function hideUnusedMemo() {
             if (entry.note) return;
             clearTimeout(hoverTimer);
-            hoverTimer = setTimeout(function () {
-                memo.style.visibility = 'visible';
-                memo.style.opacity = '1';
-            }, 500);
-        });
-        row.addEventListener('mouseleave', function () {
-            if (entry.note) return;
-            clearTimeout(hoverTimer);
+            hoverTimer = 0;
+            memoHoverEligible = false;
             memo.style.opacity = '0';
             setTimeout(function () {
                 if (memo.style.opacity === '0') {
                     memo.style.visibility = 'hidden';
                 }
             }, 120);
+        }
+        row.addEventListener('mousemove', function (event) {
+            if (entry.note) return;
+            const rect = row.getBoundingClientRect();
+            const target = event.target;
+            const excluded =
+                category.contains(target) || remove.contains(target);
+            const eligible =
+                event.clientX >= rect.left + rect.width / 2 && !excluded;
+            if (!eligible) {
+                hideUnusedMemo();
+                return;
+            }
+            if (memoHoverEligible) return;
+            memoHoverEligible = true;
+            clearTimeout(hoverTimer);
+            hoverTimer = setTimeout(function () {
+                hoverTimer = 0;
+                if (!memoHoverEligible) return;
+                memo.style.visibility = 'visible';
+                memo.style.opacity = '1';
+            }, 500);
         });
+        row.addEventListener('mouseleave', hideUnusedMemo);
 
         const remove = document.createElement('button');
         remove.type = 'button';
@@ -4802,7 +4820,7 @@
             removeEntry(entry.username);
         });
 
-        row.append(identity, category, memo, remove);
+        row.append(identity, memo, category, remove);
         return row;
     }
 
