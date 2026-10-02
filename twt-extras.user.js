@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X - Custom Extras
 // @namespace    x-custom-extras.personal
-// @version      1.5.2
+// @version      1.5.3
 // @description  Personal X extras, direct post buttons, and profile cleanup
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -3194,7 +3194,7 @@
 
         const featureSeparator = document.createElement('div');
         featureSeparator.style.cssText =
-            `height:1px;margin:6px 0;background:${base.border};opacity:.85;`;
+            `height:1px;margin:9px 0 2px;background:${base.border};opacity:.85;`;
         popup.appendChild(featureSeparator);
 
         checkboxRow(text.showViewerPostButton, 'showViewerPostButton');
@@ -3273,7 +3273,7 @@
 
         const privacySeparator = document.createElement('div');
         privacySeparator.style.cssText =
-            `height:1px;margin:6px 0;background:${base.border};opacity:.85;`;
+            `height:1px;margin:9px 0 2px;background:${base.border};opacity:.85;`;
         popup.appendChild(privacySeparator);
 
         const hideMutedAccounts = checkboxRow(
