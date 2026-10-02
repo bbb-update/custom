@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X - Custom Extras
 // @namespace    x-custom-extras.personal
-// @version      1.5.3
+// @version      1.5.4
 // @description  Personal X extras, direct post buttons, and profile cleanup
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -1947,7 +1947,10 @@
             }
         }
 
-        for (const link of document.querySelectorAll('a[href="/i/premium_sign_up"]')) {
+        for (const link of document.querySelectorAll(
+            'a[href="/i/premium_sign_up"], ' +
+            'a[href^="/i/premium_sign_up?"]'
+        )) {
             const premiumAside = link.closest(
                 'aside[role="complementary"]'
             );
@@ -1968,6 +1971,26 @@
                     premiumPrompt,
                     extraHidden
                 );
+                continue;
+            }
+
+            const mobilePremiumPrompt = link.parentElement;
+            const mobilePromptDivs = mobilePremiumPrompt
+                ? Array.from(mobilePremiumPrompt.children).filter(
+                    function (child) {
+                        return child.tagName === 'DIV';
+                    }
+                )
+                : [];
+            if (
+                mobilePremiumPrompt &&
+                mobilePremiumPrompt.lastElementChild === link &&
+                mobilePromptDivs.length >= 2 &&
+                mobilePremiumPrompt.querySelector(
+                    'svg[viewBox="0 0 22 22"]'
+                )
+            ) {
+                rememberAndHide(mobilePremiumPrompt, extraHidden);
                 continue;
             }
 
