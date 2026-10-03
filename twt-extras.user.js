@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X - Custom Extras
 // @namespace    x-custom-extras.personal
-// @version      1.5.4
+// @version      1.5.5
 // @description  Personal X extras, direct post buttons, and profile cleanup
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -154,6 +154,7 @@
     const reactionCountsByStatusId = new Map();
     const reactionCountPageChecks = new Map();
     const extraHidden = new Map();
+    const mobileStatusFollowHidden = new Map();
     const followerHidden = new Map();
     const originalLikeMetricTexts = new Map();
     const originalPostLikeTexts = new Map();
@@ -1925,7 +1926,35 @@
         ]).has(match[1].toLowerCase());
     }
 
+    function applyMobileStatusFollowVisibility() {
+        restoreHidden(mobileStatusFollowHidden);
+
+        if (!isEnabled(settings.hideExtras) || !isMobileMode()) return;
+
+        const match = location.pathname.match(
+            /^\/[^/]+\/status\/(\d+)\/?$/
+        );
+        if (!match) return;
+
+        for (const article of document.querySelectorAll('article')) {
+            const postInfo = getPostInfo(article);
+            if (!postInfo || postInfo.statusId !== match[1]) continue;
+
+            for (const button of article.querySelectorAll(
+                'button[data-testid$="-follow"]'
+            )) {
+                rememberAndHide(
+                    button.parentElement || button,
+                    mobileStatusFollowHidden
+                );
+            }
+            break;
+        }
+    }
+
     function applyMiscVisibility() {
+        applyMobileStatusFollowVisibility();
+
         if (!isEnabled(settings.hideExtras)) {
             restoreHidden(extraHidden);
             return;
